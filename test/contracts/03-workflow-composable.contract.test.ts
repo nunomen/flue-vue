@@ -1,6 +1,6 @@
 import type { FlueEvent } from '@flue/sdk';
-import { flushPromises } from '@vue/test-utils';
-import { computed, nextTick, shallowRef } from 'vue';
+import { flushPromises, renderToString } from '@vue/test-utils';
+import { computed, defineComponent, effectScope, h, nextTick, shallowRef } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { useFlueWorkflow } from '../../src/index.ts';
 import { createTestClient, finiteStream, pendingStream } from '../helpers/flue-test-client.ts';
@@ -147,9 +147,44 @@ describe('useFlueWorkflow Vue contracts', () => {
 		mounted.unmount();
 	});
 
-	it.todo('does not open streams during server-side setup');
-	it.todo('disposes the observer on component unmount');
-	it.todo('disposes the observer when an enclosing effectScope stops');
+	it('does not open streams during server-side setup', async () => {
+		const client = createTestClient();
+		const Probe = defineComponent({
+			setup() {
+				useFlueWorkflow({ runId: 'run-1', client });
+				return () => h('div');
+			},
+		});
+
+		await renderToString(Probe);
+
+		expect(client.runs.stream).not.toHaveBeenCalled();
+	});
+
+	it('disposes the observer on component unmount', async () => {
+		const client = createTestClient();
+		const stream = pendingStream<FlueEvent>();
+		vi.mocked(client.runs.stream).mockReturnValue(stream);
+		const mounted = mountSetup(() => useFlueWorkflow({ runId: 'run-1', client }));
+
+		await nextTick();
+		mounted.unmount();
+
+		expect(stream.cancel).toHaveBeenCalledTimes(1);
+	});
+
+	it('disposes the observer when an enclosing effectScope stops', async () => {
+		const client = createTestClient();
+		const stream = pendingStream<FlueEvent>();
+		vi.mocked(client.runs.stream).mockReturnValue(stream);
+		const scope = effectScope();
+
+		scope.run(() => useFlueWorkflow({ runId: 'run-1', client }));
+		await nextTick();
+		scope.stop();
+
+		expect(stream.cancel).toHaveBeenCalledTimes(1);
+	});
 	it.todo('uses shallow snapshot storage so workflow events are not deeply proxied');
 
 	it('replays completed workflow run history', async () => {

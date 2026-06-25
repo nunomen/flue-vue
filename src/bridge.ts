@@ -1,5 +1,5 @@
 import type { ShallowRef } from 'vue';
-import { onMounted, onScopeDispose, shallowRef, watch } from 'vue';
+import { getCurrentInstance, onMounted, onScopeDispose, shallowRef, watch } from 'vue';
 
 export interface SubscribableSnapshot<TSnapshot> {
 	subscribe(listener: () => void): () => void;
@@ -66,21 +66,26 @@ export function useSubscribableSnapshot<
 			disposeObserver();
 			identity = nextIdentity;
 			observer = options.createObserver(nextIdentity);
-			unsubscribe = observer.subscribe(() => publish(observer));
-			options.onObserverChange?.(observer);
-			publish(observer);
+			const activeObserver = observer;
+			unsubscribe = activeObserver.subscribe(() => publish(activeObserver));
+			options.onObserverChange?.(activeObserver);
+			publish(activeObserver);
 			if (mounted) startObserver();
 		},
 		{ immediate: true, flush: 'sync' },
 	);
 
-	onMounted(() => {
+	if (getCurrentInstance()) {
+		onMounted(() => {
+			mounted = true;
+			startObserver();
+		});
+	} else {
 		mounted = true;
 		startObserver();
-	});
+	}
 
 	onScopeDispose(disposeObserver);
 
 	return snapshot;
 }
-

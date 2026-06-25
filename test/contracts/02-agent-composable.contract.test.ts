@@ -1,5 +1,6 @@
 import type { AgentPromptImage, AgentSendResult, AttachedAgentEvent } from '@flue/sdk';
-import { computed, nextTick, shallowRef } from 'vue';
+import { renderToString } from '@vue/test-utils';
+import { computed, defineComponent, effectScope, h, nextTick, shallowRef } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { useFlueAgent } from '../../src/index.ts';
 import { createTestClient, pendingStream } from '../helpers/flue-test-client.ts';
@@ -248,9 +249,44 @@ describe('useFlueAgent Vue contracts', () => {
 		mounted.unmount();
 	});
 
-	it.todo('does not open streams during server-side setup');
-	it.todo('disposes the observer on component unmount');
-	it.todo('disposes the observer when an enclosing effectScope stops');
+	it('does not open streams during server-side setup', async () => {
+		const client = createTestClient();
+		const Probe = defineComponent({
+			setup() {
+				useFlueAgent({ name: 'triage', id: 'ticket-1', client });
+				return () => h('div');
+			},
+		});
+
+		await renderToString(Probe);
+
+		expect(client.agents.stream).not.toHaveBeenCalled();
+	});
+
+	it('disposes the observer on component unmount', async () => {
+		const client = createTestClient();
+		const stream = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream).mockReturnValue(stream);
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await nextTick();
+		mounted.unmount();
+
+		expect(stream.cancel).toHaveBeenCalledTimes(1);
+	});
+
+	it('disposes the observer when an enclosing effectScope stops', async () => {
+		const client = createTestClient();
+		const stream = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream).mockReturnValue(stream);
+		const scope = effectScope();
+
+		scope.run(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+		await nextTick();
+		scope.stop();
+
+		expect(stream.cancel).toHaveBeenCalledTimes(1);
+	});
 	it.todo('does not mutate returned message arrays in place');
 	it.todo('uses shallow snapshot storage so message payloads are not deeply proxied');
 	it.todo('loads default history with tail 100');
