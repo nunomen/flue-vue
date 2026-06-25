@@ -1,11 +1,12 @@
 import { createFlueClient, type FlueClient, type FlueEvent } from '@flue/sdk';
 import { expectTypeOf, test } from 'vitest';
 import type { ComputedRef, Plugin } from 'vue';
-import { computed, createApp, defineComponent, h, shallowRef } from 'vue';
+import { createApp, defineComponent, h, shallowRef } from 'vue';
 import {
 	createFluePlugin,
 	FlueProvider,
 	type UIMessage,
+	useFlueClient,
 	useFlueAgent,
 	useFlueWorkflow,
 } from '../../src/index.ts';
@@ -66,12 +67,24 @@ test('README agent chat example typechecks in script setup shape', () => {
 	expectTypeOf(submit).returns.toEqualTypeOf<Promise<void>>();
 });
 
-test('README workflow observation example typechecks in script setup shape', () => {
-	const props = { runId: 'run-1' as string | undefined };
+test('README workflow invocation and observation example typechecks in script setup shape', () => {
+	const client = useFlueClient();
+	const messageInput = shallowRef('Summarize the current support queue.');
+	const runId = shallowRef<string>();
 	const { events, logs, status, result, error } = useFlueWorkflow({
-		runId: computed(() => props.runId),
-		client: createFlueClient({ baseUrl: '/api' }),
+		runId,
+		client,
 	});
+
+	async function startWorkflow() {
+		const message = messageInput.value.trim();
+		if (!message) return;
+
+		const invocation = await client.workflows.invoke('weekly-report', {
+			input: { message },
+		});
+		runId.value = invocation.runId;
+	}
 
 	expectTypeOf(events).toMatchTypeOf<ComputedRef<FlueEvent[]>>();
 	expectTypeOf(logs.value).toMatchTypeOf<Extract<FlueEvent, { type: 'log' }>[]>();
@@ -80,6 +93,7 @@ test('README workflow observation example typechecks in script setup shape', () 
 	>();
 	expectTypeOf(result.value).toEqualTypeOf<unknown>();
 	expectTypeOf(error.value).toEqualTypeOf<unknown>();
+	expectTypeOf(startWorkflow).returns.toEqualTypeOf<Promise<void>>();
 });
 
 test('README token auth example typechecks', () => {

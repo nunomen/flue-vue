@@ -247,6 +247,8 @@ Why computed refs instead of a reactive object:
 
 ### `useFlueWorkflow()`
 
+`useFlueWorkflow()` only observes existing workflow runs. Workflow invocation stays on the SDK client through `client.workflows.invoke(name, { input })`; the Vue composable should not add a `sendMessage()` action. Message-like values are ordinary workflow input when the workflow schema accepts them.
+
 ```ts
 function useFlueWorkflow(options: UseFlueWorkflowOptions): UseFlueWorkflowReturn;
 

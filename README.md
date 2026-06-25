@@ -1,9 +1,9 @@
-# `@flue/vue`
+# `@flue/vue` (non-official)
 
 [![CI](https://github.com/nunomen/flue-vue/actions/workflows/ci.yml/badge.svg)](https://github.com/nunomen/flue-vue/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Test-first workspace for a native Vue 3 adapter for [Flue](https://flueframework.com/), the agent and workflow framework developed in the [withastro/flue](https://github.com/withastro/flue) repository.
+Non-official Vue 3 adapter for [Flue](https://flueframework.com/). It provides Vue-native setup, provider, agent, and workflow composables for using Flue from Vue apps while tracking the behavior of the Flue SDK and React adapter.
 
 Related Flue packages:
 
@@ -11,9 +11,9 @@ Related Flue packages:
 - [`@flue/react`](https://www.npmjs.com/package/@flue/react) as the existing React client this Vue adapter mirrors.
 - [`@flue/runtime`](https://www.npmjs.com/package/@flue/runtime) for server-side Flue applications.
 
-This repository uses contract tests and fixtures to keep the Vue adapter aligned with the Flue SDK and the existing React adapter semantics.
+Contract tests and fixtures keep the adapter aligned with the Flue SDK and the existing React adapter semantics.
 
-## Intended API
+## Basic Usage
 
 ```ts
 import { createFlueClient } from '@flue/sdk';
@@ -153,23 +153,39 @@ const client = createFlueClient({ baseUrl: '/api' });
 
 ## Workflow Observation
 
-Workflow invocation and workflow-run observation are separate operations. Keep the returned `runId`, then observe it from Vue:
+Workflow invocation and workflow-run observation are separate operations. `useFlueWorkflow()` does not have a `sendMessage()` action. If a workflow accepts message-like data, pass it as ordinary workflow input when invoking through the SDK, keep the returned `runId`, then observe that run from Vue:
 
 ```vue
 <script setup lang="ts">
-import { useFlueWorkflow } from '@flue/vue';
+import { shallowRef } from 'vue';
+import { useFlueClient, useFlueWorkflow } from '@flue/vue';
 
-const props = defineProps<{
-	runId?: string;
-}>();
+const client = useFlueClient();
+const messageInput = shallowRef('Summarize the current support queue.');
+const runId = shallowRef<string>();
 
 const { events, logs, status, result, error } = useFlueWorkflow({
-	runId: () => props.runId,
+	runId,
 });
+
+async function startWorkflow() {
+	const message = messageInput.value.trim();
+	if (!message) return;
+
+	const invocation = await client.workflows.invoke('weekly-report', {
+		input: { message },
+	});
+	runId.value = invocation.runId;
+}
 </script>
 
 <template>
 	<section>
+		<form @submit.prevent="startWorkflow">
+			<input v-model="messageInput" />
+			<button :disabled="!messageInput.trim()" type="submit">Run workflow</button>
+		</form>
+
 		<p>{{ status }}</p>
 		<pre v-if="error">{{ error }}</pre>
 		<pre v-else-if="status === 'completed'">{{ result }}</pre>
@@ -183,7 +199,7 @@ const { events, logs, status, result, error } = useFlueWorkflow({
 </template>
 ```
 
-The workflow module must expose and authorize run reads with a `runs` handler before browser clients can observe `/runs/:runId`.
+The workflow input shape is whatever the workflow defines; `{ message }` is just JSON input, not an ongoing conversation. The workflow module must expose `route` for browser invocation and expose and authorize run reads with a `runs` handler before browser clients can observe `/runs/:runId`.
 
 ## Authentication Model
 

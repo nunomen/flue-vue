@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Expanded workflow documentation and typechecked examples to show SDK invocation with message-like input separately from `useFlueWorkflow()` run observation.
+- Clarified README positioning by marking the package as non-official, describing it as a Vue adapter instead of an internal workspace, and renaming the opening API section to Basic Usage.
 - Completed the remaining contract topics by adding agent optimistic echo reconciliation, hydration/send race handling, transient retry and reconnect behavior, workflow checkpoint retries, and local-disposal assertions.
 - Removed stale documentation TODO placeholders and activated the relative `baseUrl` lifecycle contract against SDK-owned clients.
 - Documented provider-component, workflow observation, Nuxt, SSR, return-ref, status, message-part, and local-disposal behavior, with typechecked example contracts.
