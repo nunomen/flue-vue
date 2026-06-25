@@ -106,6 +106,97 @@ And a renderless provider component:
 
 The provider component is useful in tests and component libraries. The app plugin is the primary application API.
 
+### Quickstart App Example
+
+The docs should include a minimal Vite Vue example with this shape:
+
+```txt
+src/
+  main.ts
+  App.vue
+  components/
+    AgentChat.vue
+```
+
+```ts
+import { createFlueClient } from '@flue/sdk';
+import { createFluePlugin } from '@flue/vue';
+import { createApp } from 'vue';
+import App from './App.vue';
+
+const client = createFlueClient({ baseUrl: '/api' });
+
+createApp(App).use(createFluePlugin({ client })).mount('#app');
+```
+
+```vue
+<script setup lang="ts">
+import { shallowRef } from 'vue';
+import { useFlueAgent } from '@flue/vue';
+
+const props = defineProps<{ conversationId: string }>();
+
+const input = shallowRef('');
+const agent = useFlueAgent({
+	name: 'triage',
+	id: () => props.conversationId,
+});
+
+async function submit() {
+	const message = input.value.trim();
+	if (!message) return;
+	input.value = '';
+	await agent.sendMessage(message);
+}
+</script>
+```
+
+The quickstart must state that the Vue app is only the browser side. A Flue application still needs to expose matching routes, such as `/api/agents/triage/:id`, through `flue()`.
+
+### Authentication
+
+`@flue/vue` should not implement a separate authentication layer. It should mirror `@flue/react`: users configure auth on the `@flue/sdk` client and provide that client to Vue.
+
+Static bearer token:
+
+```ts
+const client = createFlueClient({
+	baseUrl: '/api',
+	token: accessToken,
+});
+```
+
+Per-request headers, useful for refreshed application auth state:
+
+```ts
+const client = createFlueClient({
+	baseUrl: '/api',
+	headers: () => {
+		const token = authStore.token;
+		return token ? { authorization: `Bearer ${token}` } : {};
+	},
+});
+```
+
+Adapter requirements:
+
+- Accept a fully configured SDK client from the plugin, provider component, or per-composable override.
+- Do not inspect, store, refresh, or transform auth credentials in the Vue layer.
+- Re-evaluate option clients reactively so applications can replace the client after login, logout, tenant switch, or token rotation.
+- Dispose and recreate active observers when the resolved client identity changes.
+- Preserve SDK behavior where header factories are evaluated per HTTP request and Durable Streams reconnect.
+- Document that active SSE connections keep their opening headers until reconnect; applications that need immediate token replacement should replace the client/observer or force a reconnect.
+
+Server-side authorization belongs to the authored Flue application. For Hono routing, protect exposed routes before mounting `flue()`:
+
+```ts
+app.use('/api/agents/*', requireUser);
+app.use('/api/workflows/*', requireUser);
+app.route('/api', flue());
+```
+
+Workflow run reads are separately authorized. Workflows must export a `runs` handler before browser clients can observe existing runs through `/runs/:runId`.
+
 ### `useFlueClient()`
 
 ```ts
@@ -290,7 +381,9 @@ Exit criteria:
 ### Phase 6: Docs and Examples
 
 - Add README examples for Vue app setup, provider component setup, agent chat, and workflow run observation.
+- Add a Vite Vue quickstart app shape.
 - Add Nuxt plugin example.
+- Document the SDK-driven authentication model.
 - Document SSR constraints.
 - Document why return values are refs, not plain values.
 - Document message parts, statuses, and transport modes.
@@ -300,6 +393,7 @@ Exit criteria:
 - Examples typecheck.
 - Docs do not imply server work cancellation.
 - Nuxt example uses client-only relative `baseUrl` or absolute server URL.
+- Auth docs make clear that the SDK client owns headers/token/custom fetch and route middleware owns authorization.
 
 ## Exhaustive Test Suite
 
@@ -314,6 +408,7 @@ The initial suite should be broad before implementation. Test names should be pr
 - option client override wins over injected client.
 - missing client errors are explicit.
 - multiple apps stay isolated.
+- replacing the provided client after auth state changes recreates active observers.
 
 ### Agent Composable Tests
 
@@ -389,6 +484,8 @@ The initial suite should be broad before implementation. Test names should be pr
 ### Documentation Tests
 
 - README examples typecheck.
+- Vite quickstart example typechecks.
+- auth examples with `token` and `headers` typecheck.
 - Nuxt plugin example typechecks.
 - Provider component example typechecks.
 - No example requires Pinia.
@@ -407,4 +504,3 @@ The initial suite should be broad before implementation. Test names should be pr
 - Should `<FlueProvider>` be exported from day one, or kept as a test/docs convenience behind composables?
 - Should the final package provide Nuxt auto-import metadata, or leave that to a later `@flue/nuxt` package?
 - Should return refs be `ComputedRef` or `ShallowRef` snapshots with `toRefs` helpers? The current recommendation is individual computed refs.
-

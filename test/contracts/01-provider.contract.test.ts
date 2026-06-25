@@ -12,5 +12,5 @@ describe('client provision contracts', () => {
 	it.todo('client option override wins over injected app client');
 	it.todo('client option accepts refs and getters');
 	it.todo('client option replacement recreates active observers');
+	it.todo('provided client replacement after auth changes recreates active observers');
 });
-
