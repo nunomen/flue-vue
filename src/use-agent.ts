@@ -224,9 +224,37 @@ class AgentSessionObserver implements AgentObserver {
 }
 
 function reduceAgentEvent(snapshot: AgentSnapshot, event: AttachedAgentEvent): AgentSnapshot {
-	const key = agentEventKey(event);
-	const message = event.type === 'message_end' ? messageFromEvent(event) : undefined;
-	const messages = message ? upsertMessage(snapshot.messages, message, key) : snapshot.messages;
+	let messages = snapshot.messages;
+
+	if (event.type === 'message_end') {
+		const message = messageFromEvent(event, snapshot.messages);
+		messages = message ? upsertMessage(snapshot.messages, message) : snapshot.messages;
+	} else if (event.type === 'text_delta') {
+		messages = upsertAssistantMessage(snapshot.messages, event, (message) => ({
+			...message,
+			parts: appendTextDelta(message.parts, event.text),
+		}));
+	} else if (event.type === 'thinking_delta') {
+		messages = upsertAssistantMessage(snapshot.messages, event, (message) => ({
+			...message,
+			parts: appendReasoningDelta(message.parts, event.delta, event.contentIndex ?? 0),
+		}));
+	} else if (event.type === 'tool_start') {
+		messages = upsertAssistantMessage(snapshot.messages, event, (message) => ({
+			...message,
+			parts: upsertToolStart(message.parts, event),
+		}));
+	} else if (event.type === 'tool') {
+		messages = upsertAssistantMessage(snapshot.messages, event, (message) => ({
+			...message,
+			parts: upsertToolResult(message.parts, event),
+		}));
+	} else if (event.type === 'turn') {
+		messages = upsertAssistantMessage(snapshot.messages, event, (message) => ({
+			...message,
+			metadata: metadataFromTurn(event, message.metadata),
+		}));
+	}
 
 	if (event.type === 'idle') {
 		return { ...snapshot, messages, status: 'idle' };
@@ -240,7 +268,8 @@ function reduceAgentEvent(snapshot: AgentSnapshot, event: AttachedAgentEvent): A
 		event.type === 'text_delta' ||
 		event.type === 'thinking_delta' ||
 		event.type === 'tool_start' ||
-		event.type === 'tool'
+		event.type === 'tool' ||
+		event.type === 'turn'
 	) {
 		return { ...snapshot, messages, status: 'streaming' };
 	}
@@ -248,7 +277,10 @@ function reduceAgentEvent(snapshot: AgentSnapshot, event: AttachedAgentEvent): A
 	return { ...snapshot, messages };
 }
 
-function messageFromEvent(event: Extract<AttachedAgentEvent, { type: 'message_end' }>): UIMessage | undefined {
+function messageFromEvent(
+	event: Extract<AttachedAgentEvent, { type: 'message_end' }>,
+	existingMessages: UIMessage[],
+): UIMessage | undefined {
 	const value = event.message;
 	if (!isRecord(value) || !('role' in value)) return undefined;
 
@@ -261,10 +293,12 @@ function messageFromEvent(event: Extract<AttachedAgentEvent, { type: 'message_en
 	}
 
 	if (value.role === 'assistant') {
+		const existing = existingMessages.find((item) => item.id === assistantMessageId(event));
 		return {
-			id: agentEventKey(event),
+			id: assistantMessageId(event),
 			role: 'assistant',
-			parts: messageContentParts(value.content),
+			metadata: existing?.metadata,
+			parts: mergeAuthoritativeParts(existing?.parts ?? [], messageContentParts(value.content)),
 		};
 	}
 
@@ -305,6 +339,162 @@ function messageContentParts(content: unknown): UIMessagePart[] {
 	});
 }
 
+function appendTextDelta(parts: UIMessagePart[], delta: string): UIMessagePart[] {
+	const next = parts.slice();
+	const index = findLastPartIndex(next, (part): part is Extract<UIMessagePart, { type: 'text' }> =>
+		part.type === 'text' && part.state === 'streaming',
+	);
+	if (index === -1) return [...next, { type: 'text', text: delta, state: 'streaming' }];
+	const part = next[index];
+	if (part?.type !== 'text') return next;
+	next[index] = { ...part, text: `${part.text}${delta}`, state: 'streaming' };
+	return next;
+}
+
+function appendReasoningDelta(parts: UIMessagePart[], delta: string, contentIndex: number): UIMessagePart[] {
+	const next = parts.slice();
+	const index = findReasoningPartIndex(next, contentIndex);
+	if (index === -1) return [...next, { type: 'reasoning', text: delta, state: 'streaming' }];
+	const part = next[index];
+	if (part?.type !== 'reasoning') return next;
+	next[index] = { ...part, text: `${part.text}${delta}`, state: 'streaming' };
+	return next;
+}
+
+function upsertToolStart(
+	parts: UIMessagePart[],
+	event: Extract<AttachedAgentEvent, { type: 'tool_start' }>,
+): UIMessagePart[] {
+	const next = parts.slice();
+	const index = next.findIndex((part) => part.type === 'dynamic-tool' && part.toolCallId === event.toolCallId);
+	const input = event.args ?? {};
+	if (index === -1) {
+		return [
+			...next,
+			{
+				type: 'dynamic-tool',
+				state: 'input-available',
+				toolName: event.toolName,
+				toolCallId: event.toolCallId,
+				input,
+			},
+		];
+	}
+
+	const part = next[index];
+	if (part?.type !== 'dynamic-tool') return next;
+	if (part.state === 'input-available') {
+		next[index] = { ...part, toolName: event.toolName, input };
+	} else {
+		next[index] = { ...part, toolName: event.toolName, input };
+	}
+	return next;
+}
+
+function upsertToolResult(
+	parts: UIMessagePart[],
+	event: Extract<AttachedAgentEvent, { type: 'tool' }>,
+): UIMessagePart[] {
+	const next = parts.slice();
+	const index = next.findIndex((part) => part.type === 'dynamic-tool' && part.toolCallId === event.toolCallId);
+	const existing = index === -1 ? undefined : next[index];
+	const input = existing?.type === 'dynamic-tool' ? existing.input : {};
+	const part: UIMessagePart = event.isError
+		? {
+				type: 'dynamic-tool',
+				state: 'output-error',
+				toolName: event.toolName,
+				toolCallId: event.toolCallId,
+				input,
+				errorText: String(event.result ?? 'Tool call failed'),
+			}
+		: {
+				type: 'dynamic-tool',
+				state: 'output-available',
+				toolName: event.toolName,
+				toolCallId: event.toolCallId,
+				input,
+				output: event.result,
+			};
+
+	if (index === -1) return [...next, part];
+	next[index] = part;
+	return next;
+}
+
+function mergeAuthoritativeParts(existingParts: UIMessagePart[], authoritativeParts: UIMessagePart[]): UIMessagePart[] {
+	return authoritativeParts.map((part) => {
+		if (part.type !== 'dynamic-tool') return part;
+
+		const existing = existingParts.find(
+			(existingPart) =>
+				existingPart.type === 'dynamic-tool' && existingPart.toolCallId === part.toolCallId,
+		);
+		if (!existing || existing.type !== 'dynamic-tool') return part;
+		if (existing.state === 'output-available') {
+			return {
+				...existing,
+				toolName: part.toolName,
+				input: part.input,
+			};
+		}
+		if (existing.state === 'output-error') {
+			return {
+				...existing,
+				toolName: part.toolName,
+				input: part.input,
+			};
+		}
+		return part;
+	});
+}
+
+function metadataFromTurn(
+	event: Extract<AttachedAgentEvent, { type: 'turn' }>,
+	existing: UIMessage['metadata'],
+): UIMessage['metadata'] {
+	return {
+		...existing,
+		usage: event.response.usage ?? existing?.usage,
+		model: {
+			provider: event.request.providerId,
+			id: event.response.responseModel ?? event.request.requestedModel,
+		},
+	};
+}
+
+function upsertAssistantMessage(
+	messages: UIMessage[],
+	event: AttachedAgentEvent,
+	update: (message: UIMessage) => UIMessage,
+): UIMessage[] {
+	const id = assistantMessageId(event);
+	const existing = messages.find((message) => message.id === id);
+	const message = update(existing ?? { id, role: 'assistant', parts: [] });
+	return upsertMessage(messages, message);
+}
+
+function findLastPartIndex<TPart extends UIMessagePart>(
+	parts: UIMessagePart[],
+	predicate: (part: UIMessagePart) => part is TPart,
+): number {
+	for (let index = parts.length - 1; index >= 0; index--) {
+		const part = parts[index];
+		if (part && predicate(part)) return index;
+	}
+	return -1;
+}
+
+function findReasoningPartIndex(parts: UIMessagePart[], contentIndex: number): number {
+	let seen = 0;
+	for (let index = 0; index < parts.length; index++) {
+		if (parts[index]?.type !== 'reasoning') continue;
+		if (seen === contentIndex) return index;
+		seen++;
+	}
+	return -1;
+}
+
 function imageToMessagePart(image: { data: string; mimeType: string }): UIMessagePart {
 	return {
 		type: 'file',
@@ -313,12 +503,21 @@ function imageToMessagePart(image: { data: string; mimeType: string }): UIMessag
 	};
 }
 
-function upsertMessage(messages: UIMessage[], message: UIMessage, id: string): UIMessage[] {
-	const existingIndex = messages.findIndex((item) => item.id === id);
+function upsertMessage(messages: UIMessage[], message: UIMessage): UIMessage[] {
+	const existingIndex = messages.findIndex((item) => item.id === message.id);
 	if (existingIndex === -1) return [...messages, message];
 	const next = messages.slice();
 	next[existingIndex] = message;
 	return next;
+}
+
+function assistantMessageId(event: AttachedAgentEvent): string {
+	return [
+		event.instanceId,
+		event.dispatchId ?? '',
+		event.submissionId ?? '',
+		'assistant',
+	].join(':');
 }
 
 function agentEventKey(event: AttachedAgentEvent): string {
