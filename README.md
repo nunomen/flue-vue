@@ -1,5 +1,8 @@
 # `@flue/vue`
 
+[![CI](https://github.com/nunomen/flue-vue/actions/workflows/ci.yml/badge.svg)](https://github.com/nunomen/flue-vue/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Test-first workspace for a native Vue 3 adapter for [Flue](https://flueframework.com/), the agent and workflow framework developed in the [withastro/flue](https://github.com/withastro/flue) repository.
 
 Related Flue packages:
