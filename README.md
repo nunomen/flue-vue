@@ -283,8 +283,9 @@ Disposing a Vue observer only closes the local stream read. It does not cancel s
 ## Current Status
 
 - `src/index.ts` exports provider, agent, workflow, and shared SDK types.
-- `useFlueAgent()` covers client resolution, mounted observation, history hydration, live tailing, optimistic send admission, durable echo reconciliation, streamed assistant text/reasoning/tool parts, terminal reconciliation, fresh-conversation `404` handling, transient retries, and reconnect wakeups.
-- `useFlueWorkflow()` covers client resolution, mounted observation, run replay, log selection, terminal states, disconnected states, event dedupe, and transient retry from durable checkpoints.
+- `src/core` keeps reducer, agent-session, workflow-run, and shared message/status types framework-neutral so the Vue composables stay lifecycle/ref adapters.
+- `useFlueAgent()` covers client resolution, mounted observation, history hydration, live tailing, optimistic send admission, durable echo reconciliation, streamed assistant text/reasoning/tool parts, terminal reconciliation, stable React-compatible message IDs, fresh-conversation `404` handling, fatal stream errors, transient retries, and reconnect wakeups.
+- `useFlueWorkflow()` covers client resolution, mounted observation, run replay, log selection, terminal states, disconnected states, event dedupe, and transient retry from durable checkpoints with retry status snapshots.
 - `test/contracts` contains active runtime and type contract coverage for the public Vue adapter behavior.
 - `docs/implementation-plan.md` is the source of truth for the build plan.
 

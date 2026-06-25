@@ -26,7 +26,7 @@ The [`@flue/react`](https://www.npmjs.com/package/@flue/react) package is a thin
 - `reduceAgentEvent()` owns message assembly, duplicate filtering, reasoning/tool/image parts, status transitions, and durable echo reconciliation.
 - `useFlueWorkflow()` wraps `WorkflowRun`, which owns run replay, log selection, terminal state, transient retries, and durable event dedupe.
 
-The Vue package should reuse or extract these session/reducer pieces. Reimplementing them in Vue would create behavior drift.
+The Vue package should avoid Vue-specific implementations of these pieces. In this standalone repository, where `@flue/react` is external, that means keeping agent reducers, agent sessions, workflow runs, and shared message/status types in a local framework-neutral `src/core` module and enforcing parity with the published React package through contract tests. True shared consumption by both React and Vue requires an upstream `withastro/flue` change.
 
 ### VueUse Patterns
 
@@ -54,6 +54,11 @@ Observed patterns to adopt:
 
 ```txt
 src/
+  core/
+    agent-reducer.ts
+    agent-session.ts
+    workflow-run.ts
+    types.ts
   index.ts
   provider.ts
   use-agent.ts
@@ -87,7 +92,7 @@ packages/vue/
   use-workflow.ts
 ```
 
-This local project starts as a standalone design/test harness. If implemented against upstream [withastro/flue](https://github.com/withastro/flue), first extract the React session and reducer code into shared core, then implement Vue on top of that core.
+This local project starts as a standalone design/test harness. Because it does not control `@flue/react`, it cannot make React consume the local core. If implemented against upstream [withastro/flue](https://github.com/withastro/flue), first extract the React session and reducer code into shared core, then implement Vue on top of that core.
 
 ## Public API
 
@@ -320,7 +325,23 @@ Exit criteria:
 - `pnpm run test:type` succeeds.
 - Contract test names cover all required behavior.
 
-### Phase 2: Shared Core Extraction
+### Phase 2: Framework-Neutral Core Strategy
+
+In this standalone repository:
+
+- Move Vue-owned reducer/session/workflow state into `src/core`.
+- Keep `src/core` free of React and Vue imports.
+- Keep `useFlueAgent()` and `useFlueWorkflow()` as Vue lifecycle/ref adapters over core classes.
+- Use published `@flue/react` behavior as a contract reference, not as a private runtime dependency.
+- Add parity contracts for React-observed behavior such as stable message IDs, `message_start`, `thinking_start`, `thinking_end`, image URL normalization, terminal stream failures, and retry status snapshots.
+
+Exit criteria:
+
+- Vue composables contain no reducer/session/workflow state-machine logic.
+- `src/core` has no React or Vue dependency.
+- Contract tests cover known React parity risks.
+
+### Optional Upstream Shared Core Extraction
 
 If contributing upstream:
 
@@ -505,7 +526,7 @@ The initial suite should be broad before implementation. Test names should be pr
 - Do not add Pinia as a dependency.
 - Do not build chat UI components in this package.
 - Do not expose a cancellation API that implies server-side run cancellation.
-- Do not implement a separate Vue-only reducer.
+- Do not keep reducer/session behavior embedded in Vue-specific modules; standalone state-machine logic belongs in framework-neutral `src/core` until an upstream shared core exists.
 - Do not use global singleton clients as the main API.
 
 ## Open Questions

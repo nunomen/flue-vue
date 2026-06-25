@@ -359,6 +359,10 @@ describe('useFlueWorkflow Vue contracts', () => {
 			const mounted = mountSetup(() => useFlueWorkflow({ runId: 'run-1', client }));
 
 			await flushPromises();
+
+			expect(mounted.exposed.status.value).toBe('connecting');
+			expect(mounted.exposed.error.value).toEqual(new Error('offline'));
+
 			await vi.advanceTimersByTimeAsync(1);
 			await flushPromises();
 

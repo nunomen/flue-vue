@@ -1,12 +1,7 @@
 import type { ShallowRef } from 'vue';
 import { getCurrentInstance, onMounted, onScopeDispose, shallowRef, watch } from 'vue';
-
-export interface SubscribableSnapshot<TSnapshot> {
-	subscribe(listener: () => void): () => void;
-	getSnapshot(): TSnapshot;
-	start(): void;
-	dispose(): void;
-}
+import type { SubscribableSnapshot } from './core/types.ts';
+export type { SubscribableSnapshot } from './core/types.ts';
 
 export interface UseSubscribableSnapshotOptions<TSnapshot, TIdentity, TObserver extends SubscribableSnapshot<TSnapshot>> {
 	emptySnapshot: TSnapshot;

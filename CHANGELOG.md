@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Moved agent and workflow state-machine logic into framework-neutral `src/core` modules, keeping Vue composables focused on ref/getter resolution and lifecycle bridging while documenting that true React/Vue shared core requires upstream control.
+- Added React parity coverage and fixes for stable message IDs, `message_start` and reasoning start/end events, raw base64 image URL normalization, terminal agent stream failures, unexpected live stream closures, and retry status snapshots for agent and workflow observers.
 - Expanded workflow documentation and typechecked examples to show SDK invocation with message-like input separately from `useFlueWorkflow()` run observation.
 - Clarified README positioning by marking the package as non-official, describing it as a Vue adapter instead of an internal workspace, and renaming the opening API section to Basic Usage.
 - Completed the remaining contract topics by adding agent optimistic echo reconciliation, hydration/send race handling, transient retry and reconnect behavior, workflow checkpoint retries, and local-disposal assertions.
