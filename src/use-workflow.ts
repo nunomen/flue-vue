@@ -52,6 +52,7 @@ class WorkflowRunObserver implements SubscribableSnapshot<WorkflowSnapshot> {
 	#disposed = false;
 	#seenEvents = new Set<string>();
 	#terminal = false;
+	#nextOffset = '-1';
 
 	constructor(readonly identity: WorkflowIdentity) {}
 
@@ -77,31 +78,44 @@ class WorkflowRunObserver implements SubscribableSnapshot<WorkflowSnapshot> {
 	}
 
 	async #observe() {
-		try {
-			this.#stream = this.identity.client.runs.stream(this.identity.runId, {
-				offset: '-1',
-				live: true,
-			});
+		let retryAttempt = 0;
 
-			for await (const event of this.#stream) {
-				if (this.#disposed) return;
-				this.#applyEvent(event);
-				if (this.#terminal) return;
-			}
-
-			if (!this.#disposed && !this.#terminal) {
-				this.#publish({
-					...this.#snapshot,
-					status: 'disconnected',
+		while (!this.#disposed && !this.#terminal) {
+			try {
+				this.#stream = this.identity.client.runs.stream(this.identity.runId, {
+					offset: this.#nextOffset,
+					live: true,
 				});
+
+				for await (const event of this.#stream) {
+					if (this.#disposed) return;
+					this.#applyEvent(event);
+					this.#nextOffset = this.#stream.offset;
+					retryAttempt = 0;
+					if (this.#terminal) return;
+				}
+
+				if (!this.#disposed && !this.#terminal) {
+					this.#publish({
+						...this.#snapshot,
+						status: 'disconnected',
+					});
+				}
+				return;
+			} catch (error) {
+				if (this.#disposed) return;
+				this.#nextOffset = this.#stream?.offset ?? this.#nextOffset;
+				if (isTerminalStatusError(error)) {
+					this.#publish({
+						...this.#snapshot,
+						status: 'disconnected',
+						error,
+					});
+					return;
+				}
+
+				await waitForRetry(retryAttempt++);
 			}
-		} catch (error) {
-			if (this.#disposed) return;
-			this.#publish({
-				...this.#snapshot,
-				status: 'disconnected',
-				error,
-			});
 		}
 	}
 
@@ -135,6 +149,19 @@ class WorkflowRunObserver implements SubscribableSnapshot<WorkflowSnapshot> {
 	}
 }
 
+function isTerminalStatusError(error: unknown): boolean {
+	return isRecord(error) && (error.status === 401 || error.status === 403 || error.status === 404);
+}
+
+function waitForRetry(attempt: number): Promise<void> {
+	const delay = Math.min(2 ** attempt, 50);
+	return new Promise((resolve) => setTimeout(resolve, delay));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null;
+}
+
 function workflowEventKey(event: FlueEvent): string {
 	return [
 		event.runId ?? '',
@@ -145,4 +172,3 @@ function workflowEventKey(event: FlueEvent): string {
 		event.timestamp,
 	].join(':');
 }
-

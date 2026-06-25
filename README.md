@@ -11,7 +11,7 @@ Related Flue packages:
 - [`@flue/react`](https://www.npmjs.com/package/@flue/react) as the existing React client this Vue adapter mirrors.
 - [`@flue/runtime`](https://www.npmjs.com/package/@flue/runtime) for server-side Flue applications.
 
-This repository intentionally starts with API design, contract tests, fixtures, and stubs. The next implementation pass should turn the `todo` contracts into active tests as each capability lands.
+This repository uses contract tests and fixtures to keep the Vue adapter aligned with the Flue SDK and the existing React adapter semantics.
 
 ## Intended API
 
@@ -267,9 +267,9 @@ Disposing a Vue observer only closes the local stream read. It does not cancel s
 ## Current Status
 
 - `src/index.ts` exports provider, agent, workflow, and shared SDK types.
-- `useFlueAgent()` covers client resolution, mounted observation, history hydration, live tailing, optimistic send admission, streamed assistant text/reasoning/tool parts, terminal reconciliation, and fresh-conversation `404` handling.
-- `useFlueWorkflow()` covers client resolution, mounted observation, run replay, log selection, terminal states, disconnected states, and event dedupe.
-- `test/contracts` contains active contract coverage plus remaining todos for retry/backoff and deeper optimistic echo reconciliation.
+- `useFlueAgent()` covers client resolution, mounted observation, history hydration, live tailing, optimistic send admission, durable echo reconciliation, streamed assistant text/reasoning/tool parts, terminal reconciliation, fresh-conversation `404` handling, transient retries, and reconnect wakeups.
+- `useFlueWorkflow()` covers client resolution, mounted observation, run replay, log selection, terminal states, disconnected states, event dedupe, and transient retry from durable checkpoints.
+- `test/contracts` contains active runtime and type contract coverage for the public Vue adapter behavior.
 - `docs/implementation-plan.md` is the source of truth for the build plan.
 
 ## Commands

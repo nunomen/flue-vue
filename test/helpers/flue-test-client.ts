@@ -42,10 +42,25 @@ export function throwingStream<T>(error: unknown, offset = 'offset-error'): Flue
 	};
 }
 
-export function pendingStream<T>(offset = '-1'): FlueEventStream<T> & { push(event: T): void } {
+export function failingStream<T>(events: T[], error: unknown, offset = 'offset-error'): FlueEventStream<T> {
+	return {
+		offset,
+		cancel: vi.fn(),
+		async *[Symbol.asyncIterator]() {
+			for (const event of events) yield event;
+			throw error;
+		},
+	};
+}
+
+export function pendingStream<T>(
+	offset = '-1',
+): FlueEventStream<T> & { push(event: T): void; close(): void; fail(error: unknown): void } {
 	const values: T[] = [];
 	let wake: (() => void) | undefined;
 	let canceled = false;
+	let closed = false;
+	let failure: unknown;
 	const cancel = vi.fn(() => {
 		canceled = true;
 		wake?.();
@@ -56,11 +71,22 @@ export function pendingStream<T>(offset = '-1'): FlueEventStream<T> & { push(eve
 			values.push(event);
 			wake?.();
 		},
+		close() {
+			closed = true;
+			wake?.();
+		},
+		fail(error) {
+			failure = error;
+			closed = true;
+			wake?.();
+		},
 		cancel,
 		async *[Symbol.asyncIterator]() {
 			while (!canceled) {
 				const value = values.shift();
 				if (value !== undefined) yield value;
+				else if (failure !== undefined) throw failure;
+				else if (closed) return;
 				else await new Promise<void>((resolve) => (wake = resolve));
 			}
 		},

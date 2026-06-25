@@ -1,3 +1,4 @@
+import { IMAGE_DATA_OMITTED } from '@flue/sdk';
 import type {
 	AgentPromptImage,
 	AgentSendResult,
@@ -10,7 +11,13 @@ import { flushPromises, renderToString } from '@vue/test-utils';
 import { computed, defineComponent, effectScope, h, isProxy, nextTick, shallowRef } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { useFlueAgent } from '../../src/index.ts';
-import { createTestClient, finiteStream, pendingStream, throwingStream } from '../helpers/flue-test-client.ts';
+import {
+	createTestClient,
+	failingStream,
+	finiteStream,
+	pendingStream,
+	throwingStream,
+} from '../helpers/flue-test-client.ts';
 import { mountSetup } from '../helpers/vue-harness.ts';
 
 describe('useFlueAgent Vue contracts', () => {
@@ -366,7 +373,23 @@ describe('useFlueAgent Vue contracts', () => {
 		expect(mounted.exposed.historyReady.value).toBe(false);
 		mounted.unmount();
 	});
-	it.todo('retains optimistic sends made while initial history is loading');
+	it('retains optimistic sends made while initial history is loading', async () => {
+		const client = createTestClient();
+		const history = pendingStream<AttachedAgentEvent>('history-offset');
+		const live = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream).mockReturnValueOnce(history).mockReturnValueOnce(live);
+		vi.mocked(client.agents.send).mockResolvedValue(agentAdmission());
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await nextTick();
+		await mounted.exposed.sendMessage('hello');
+
+		expect(mounted.exposed.historyReady.value).toBe(false);
+		expect(mounted.exposed.messages.value).toMatchObject([
+			{ id: 'local:submission-1', role: 'user', parts: [{ type: 'text', text: 'hello' }] },
+		]);
+		mounted.unmount();
+	});
 	it('continues live observation from the exact hydration offset', async () => {
 		const client = createTestClient();
 		const live = pendingStream<AttachedAgentEvent>();
@@ -402,7 +425,33 @@ describe('useFlueAgent Vue contracts', () => {
 		});
 		mounted.unmount();
 	});
-	it.todo('keeps historyReady true across live reconnects');
+	it('keeps historyReady true across live reconnects', async () => {
+		vi.useFakeTimers();
+		try {
+			const client = createTestClient();
+			const retryLive = pendingStream<AttachedAgentEvent>();
+			vi.mocked(client.agents.stream)
+				.mockReturnValueOnce(finiteStream<AttachedAgentEvent>([], 'history-offset'))
+				.mockReturnValueOnce(failingStream<AttachedAgentEvent>([textDeltaEvent(0, 'hello')], new Error('offline'), 'live-offset'))
+				.mockReturnValueOnce(retryLive);
+			const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+			await flushPromises();
+			expect(mounted.exposed.historyReady.value).toBe(true);
+
+			await vi.advanceTimersByTimeAsync(1);
+			await flushPromises();
+
+			expect(mounted.exposed.historyReady.value).toBe(true);
+			expect(client.agents.stream).toHaveBeenLastCalledWith('triage', 'ticket-1', {
+				offset: 'live-offset',
+				live: true,
+			});
+			mounted.unmount();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 	it('treats initial 404 as an empty new conversation', async () => {
 		const client = createTestClient();
 		vi.mocked(client.agents.stream).mockReturnValue(throwingStream<AttachedAgentEvent>({ status: 404 }));
@@ -416,7 +465,25 @@ describe('useFlueAgent Vue contracts', () => {
 		expect(mounted.exposed.error.value).toBeUndefined();
 		mounted.unmount();
 	});
-	it.todo('attaches from the admission offset after first send for a fresh conversation');
+	it('attaches from the admission offset after first send for a fresh conversation', async () => {
+		const client = createTestClient();
+		const live = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream)
+			.mockReturnValueOnce(throwingStream<AttachedAgentEvent>({ status: 404 }))
+			.mockReturnValueOnce(live);
+		vi.mocked(client.agents.send).mockResolvedValue(agentAdmission({ offset: 'admission-offset' }));
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await flushPromises();
+		await mounted.exposed.sendMessage('hello');
+		await nextTick();
+
+		expect(client.agents.stream).toHaveBeenLastCalledWith('triage', 'ticket-1', {
+			offset: 'admission-offset',
+			live: true,
+		});
+		mounted.unmount();
+	});
 
 	it('sendMessage rejects without id', async () => {
 		const client = createTestClient();
@@ -499,12 +566,141 @@ describe('useFlueAgent Vue contracts', () => {
 		mounted.unmount();
 	});
 
-	it.todo('reconciles receipt-before-echo without comparing message text');
-	it.todo('reconciles echo-before-receipt by dropping the optimistic duplicate');
-	it.todo('keeps optimistic user message position when durable echo arrives late');
-	it.todo('keeps durable message order when a send completes during hydration');
-	it.todo('preserves send failure state when hydration later completes');
-	it.todo('preserves local image data URLs when durable echo redacts image bytes');
+	it('reconciles receipt-before-echo without comparing message text', async () => {
+		const client = createTestClient();
+		const live = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream)
+			.mockReturnValueOnce(finiteStream<AttachedAgentEvent>([], 'history-offset'))
+			.mockReturnValueOnce(live);
+		vi.mocked(client.agents.send).mockResolvedValue(agentAdmission());
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await flushPromises();
+		await mounted.exposed.sendMessage('local text');
+		live.push(submissionCompletedEvent(0));
+		live.push(messageEndEvent(1, 'user', 'server text'));
+		await flushPromises();
+
+		expect(mounted.exposed.messages.value).toHaveLength(1);
+		expect(mounted.exposed.messages.value[0]).toMatchObject({
+			role: 'user',
+			parts: [{ type: 'text', text: 'server text', state: 'done' }],
+		});
+		mounted.unmount();
+	});
+
+	it('reconciles echo-before-receipt by dropping the optimistic duplicate', async () => {
+		const client = createTestClient();
+		const live = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream)
+			.mockReturnValueOnce(finiteStream<AttachedAgentEvent>([], 'history-offset'))
+			.mockReturnValueOnce(live);
+		vi.mocked(client.agents.send).mockResolvedValue(agentAdmission());
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await flushPromises();
+		await mounted.exposed.sendMessage('hello');
+		live.push(messageEndEvent(0, 'user', 'hello'));
+		live.push(submissionCompletedEvent(1));
+		await flushPromises();
+
+		expect(mounted.exposed.messages.value).toHaveLength(1);
+		expect(mounted.exposed.messages.value[0]?.id).not.toBe('local:submission-1');
+		mounted.unmount();
+	});
+
+	it('keeps optimistic user message position when durable echo arrives late', async () => {
+		const client = createTestClient();
+		const live = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream)
+			.mockReturnValueOnce(finiteStream<AttachedAgentEvent>([messageEndEvent(0, 'user', 'older')], 'history-offset'))
+			.mockReturnValueOnce(live);
+		vi.mocked(client.agents.send).mockResolvedValue(agentAdmission());
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await flushPromises();
+		await mounted.exposed.sendMessage('new');
+		live.push(messageEndEvent(1, 'user', 'new'));
+		await flushPromises();
+
+		expect(mounted.exposed.messages.value.map((message) => message.parts[0])).toMatchObject([
+			{ type: 'text', text: 'older' },
+			{ type: 'text', text: 'new' },
+		]);
+		mounted.unmount();
+	});
+
+	it('keeps durable message order when a send completes during hydration', async () => {
+		const client = createTestClient();
+		const history = pendingStream<AttachedAgentEvent>('history-offset');
+		const live = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream).mockReturnValueOnce(history).mockReturnValueOnce(live);
+		vi.mocked(client.agents.send).mockResolvedValue(agentAdmission());
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await nextTick();
+		await mounted.exposed.sendMessage('hello');
+		history.push(messageEndEvent(0, 'user', 'hello'));
+		history.push(messageEndEvent(1, 'assistant', [{ type: 'text', text: 'answer' }]));
+		history.close();
+		await flushPromises();
+
+		expect(mounted.exposed.messages.value.map((message) => message.role)).toEqual(['user', 'assistant']);
+		expect(mounted.exposed.messages.value).toHaveLength(2);
+		mounted.unmount();
+	});
+
+	it('preserves send failure state when hydration later completes', async () => {
+		const client = createTestClient();
+		const history = pendingStream<AttachedAgentEvent>('history-offset');
+		vi.mocked(client.agents.stream).mockReturnValue(history);
+		const error = new Error('admission failed');
+		vi.mocked(client.agents.send).mockRejectedValue(error);
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await nextTick();
+		await expect(mounted.exposed.sendMessage('hello')).rejects.toThrow('admission failed');
+		history.push(messageEndEvent(0, 'user', 'older'));
+		history.close();
+		await flushPromises();
+
+		expect(mounted.exposed.status.value).toBe('error');
+		expect(mounted.exposed.error.value).toBe(error);
+		expect(mounted.exposed.messages.value).toMatchObject([{ role: 'user' }]);
+		mounted.unmount();
+	});
+
+	it('preserves local image data URLs when durable echo redacts image bytes', async () => {
+		const client = createTestClient();
+		const live = pendingStream<AttachedAgentEvent>();
+		const image: AgentPromptImage = {
+			type: 'image',
+			data: 'data:image/png;base64,abc',
+			mimeType: 'image/png',
+		};
+		vi.mocked(client.agents.stream)
+			.mockReturnValueOnce(finiteStream<AttachedAgentEvent>([], 'history-offset'))
+			.mockReturnValueOnce(live);
+		vi.mocked(client.agents.send).mockResolvedValue(agentAdmission());
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await flushPromises();
+		await mounted.exposed.sendMessage('hello', { images: [image] });
+		live.push(
+			messageEndEvent(0, 'user', [
+				{ type: 'text', text: 'hello' },
+				{ type: 'image', data: IMAGE_DATA_OMITTED, mimeType: 'image/png' },
+			]),
+		);
+		await flushPromises();
+
+		expect(mounted.exposed.messages.value[0]?.parts).toContainEqual({
+			type: 'file',
+			mediaType: 'image/png',
+			url: 'data:image/png;base64,abc',
+		});
+		mounted.unmount();
+	});
 	it('builds text and reasoning parts from ordered deltas', async () => {
 		const client = createTestClient();
 		const live = pendingStream<AttachedAgentEvent>();
@@ -650,7 +846,32 @@ describe('useFlueAgent Vue contracts', () => {
 		});
 		mounted.unmount();
 	});
-	it.todo('drops late text deltas until terminal reconciliation supplies a message');
+	it('drops late text deltas until terminal reconciliation supplies a message', async () => {
+		const client = createTestClient();
+		const live = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream)
+			.mockReturnValueOnce(finiteStream<AttachedAgentEvent>([], 'history-offset'))
+			.mockReturnValueOnce(live);
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await flushPromises();
+		live.push(textDeltaEvent(0, 'orphan', { submissionId: undefined, dispatchId: undefined, turnId: undefined }));
+		await flushPromises();
+		expect(mounted.exposed.messages.value).toEqual([]);
+
+		live.push(
+			messageEndEvent(1, 'assistant', [{ type: 'text', text: 'final' }], {
+				submissionId: undefined,
+				dispatchId: undefined,
+			}),
+		);
+		await flushPromises();
+
+		expect(mounted.exposed.messages.value).toMatchObject([
+			{ role: 'assistant', parts: [{ type: 'text', text: 'final' }] },
+		]);
+		mounted.unmount();
+	});
 	it('adds model and usage metadata from turn events', async () => {
 		const client = createTestClient();
 		const live = pendingStream<AttachedAgentEvent>();
@@ -710,7 +931,26 @@ describe('useFlueAgent Vue contracts', () => {
 		]);
 		mounted.unmount();
 	});
-	it.todo('keeps another local submission pending when one submission becomes idle');
+	it('keeps another local submission pending when one submission becomes idle', async () => {
+		const client = createTestClient();
+		const live = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream)
+			.mockReturnValueOnce(finiteStream<AttachedAgentEvent>([], 'history-offset'))
+			.mockReturnValueOnce(live);
+		vi.mocked(client.agents.send)
+			.mockResolvedValueOnce(agentAdmission({ submissionId: 'submission-1' }))
+			.mockResolvedValueOnce(agentAdmission({ submissionId: 'submission-2' }));
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await flushPromises();
+		await mounted.exposed.sendMessage('first');
+		await mounted.exposed.sendMessage('second');
+		live.push(idleEvent(0, { submissionId: 'submission-1' }));
+		await flushPromises();
+
+		expect(mounted.exposed.status.value).toBe('streaming');
+		mounted.unmount();
+	});
 	it('reports streaming when assistant activity arrives before admission', async () => {
 		const client = createTestClient();
 		const live = pendingStream<AttachedAgentEvent>();
@@ -743,19 +983,165 @@ describe('useFlueAgent Vue contracts', () => {
 		expect(mounted.exposed.error.value?.message).toBe('failed');
 		mounted.unmount();
 	});
-	it.todo('retries transient hydration errors with capped exponential backoff');
-	it.todo('retries transient live errors from delivered checkpoint');
-	it.todo('short-circuits reconnect backoff when sendMessage wakes the observer');
-	it.todo('ignores stale checkpoints from disposed observers after replacement starts');
-	it.todo('does not duplicate interrupted partial batches when they are redelivered');
-	it.todo('does not cancel server-side work when local observation is disposed');
+	it('retries transient hydration errors with capped exponential backoff', async () => {
+		vi.useFakeTimers();
+		try {
+			const client = createTestClient();
+			const live = pendingStream<AttachedAgentEvent>();
+			vi.mocked(client.agents.stream)
+				.mockReturnValueOnce(throwingStream<AttachedAgentEvent>(new Error('offline')))
+				.mockReturnValueOnce(finiteStream<AttachedAgentEvent>([messageEndEvent(0, 'user', 'hello')], 'history-offset'))
+				.mockReturnValueOnce(live);
+			const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+			await flushPromises();
+			await vi.advanceTimersByTimeAsync(1);
+			await flushPromises();
+
+			expect(client.agents.stream).toHaveBeenNthCalledWith(2, 'triage', 'ticket-1', {
+				offset: '-1',
+				tail: 100,
+				live: false,
+			});
+			expect(mounted.exposed.historyReady.value).toBe(true);
+			expect(mounted.exposed.status.value).toBe('idle');
+			mounted.unmount();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('retries transient live errors from delivered checkpoint', async () => {
+		vi.useFakeTimers();
+		try {
+			const client = createTestClient();
+			const retryLive = pendingStream<AttachedAgentEvent>();
+			vi.mocked(client.agents.stream)
+				.mockReturnValueOnce(finiteStream<AttachedAgentEvent>([], 'history-offset'))
+				.mockReturnValueOnce(failingStream<AttachedAgentEvent>([textDeltaEvent(0, 'hello')], new Error('offline'), 'live-offset'))
+				.mockReturnValueOnce(retryLive);
+			const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+			await flushPromises();
+			await vi.advanceTimersByTimeAsync(1);
+			await flushPromises();
+
+			expect(client.agents.stream).toHaveBeenLastCalledWith('triage', 'ticket-1', {
+				offset: 'live-offset',
+				live: true,
+			});
+			expect(mounted.exposed.messages.value[0]?.parts).toEqual([
+				{ type: 'text', text: 'hello', state: 'streaming' },
+			]);
+			mounted.unmount();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('short-circuits reconnect backoff when sendMessage wakes the observer', async () => {
+		vi.useFakeTimers();
+		try {
+			const client = createTestClient();
+			const retryLive = pendingStream<AttachedAgentEvent>();
+			vi.mocked(client.agents.stream)
+				.mockReturnValueOnce(finiteStream<AttachedAgentEvent>([], 'history-offset'))
+				.mockReturnValueOnce(throwingStream<AttachedAgentEvent>(new Error('offline'), 'live-offset'))
+				.mockReturnValueOnce(retryLive);
+			vi.mocked(client.agents.send).mockResolvedValue(agentAdmission({ offset: 'admission-offset' }));
+			const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+			await flushPromises();
+			const sendPromise = mounted.exposed.sendMessage('wake up');
+			await sendPromise;
+			await flushPromises();
+
+			expect(client.agents.stream).toHaveBeenLastCalledWith('triage', 'ticket-1', {
+				offset: 'live-offset',
+				live: true,
+			});
+			mounted.unmount();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('ignores stale checkpoints from disposed observers after replacement starts', async () => {
+		vi.useFakeTimers();
+		try {
+			const client = createTestClient();
+			const nextLive = pendingStream<AttachedAgentEvent>();
+			vi.mocked(client.agents.stream)
+				.mockReturnValueOnce(finiteStream<AttachedAgentEvent>([], 'history-offset'))
+				.mockReturnValueOnce(failingStream<AttachedAgentEvent>([textDeltaEvent(0, 'old')], new Error('offline'), 'old-offset'))
+				.mockReturnValueOnce(finiteStream<AttachedAgentEvent>([], 'new-history-offset'))
+				.mockReturnValueOnce(nextLive);
+			const id = shallowRef('ticket-1');
+			const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id, client }));
+
+			await flushPromises();
+			id.value = 'ticket-2';
+			await nextTick();
+			await vi.advanceTimersByTimeAsync(1);
+			await flushPromises();
+
+			expect(client.agents.stream).toHaveBeenLastCalledWith('triage', 'ticket-2', {
+				offset: 'new-history-offset',
+				live: true,
+			});
+			mounted.unmount();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('does not duplicate interrupted partial batches when they are redelivered', async () => {
+		vi.useFakeTimers();
+		try {
+			const client = createTestClient();
+			const event = textDeltaEvent(0, 'hello');
+			vi.mocked(client.agents.stream)
+				.mockReturnValueOnce(finiteStream<AttachedAgentEvent>([], 'history-offset'))
+				.mockReturnValueOnce(failingStream<AttachedAgentEvent>([event], new Error('offline'), 'live-offset'))
+				.mockReturnValueOnce(finiteStream<AttachedAgentEvent>([event], 'live-offset-2'));
+			const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+			await flushPromises();
+			await vi.advanceTimersByTimeAsync(1);
+			await flushPromises();
+
+			expect(mounted.exposed.messages.value[0]?.parts).toEqual([
+				{ type: 'text', text: 'hello', state: 'streaming' },
+			]);
+			mounted.unmount();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('does not cancel server-side work when local observation is disposed', async () => {
+		const client = createTestClient();
+		const stream = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream).mockReturnValue(stream);
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await nextTick();
+		mounted.unmount();
+
+		expect(stream.cancel).toHaveBeenCalledTimes(1);
+		expect(client.agents.wait).not.toHaveBeenCalled();
+		expect(client.agents.prompt).not.toHaveBeenCalled();
+		expect(client.workflows.run).not.toHaveBeenCalled();
+		expect(client.workflows.invoke).not.toHaveBeenCalled();
+	});
 });
 
-function agentAdmission(): AgentSendResult {
+function agentAdmission(overrides: Partial<AgentSendResult> = {}): AgentSendResult {
 	return {
 		streamUrl: 'https://example.com/stream',
 		offset: 'offset-1',
 		submissionId: 'submission-1',
+		...overrides,
 	};
 }
 
@@ -763,16 +1149,19 @@ function messageEndEvent(
 	eventIndex: number,
 	role: 'user',
 	content: LlmUserMessage['content'],
+	overrides?: Partial<AttachedAgentEvent>,
 ): Extract<AttachedAgentEvent, { type: 'message_end' }>;
 function messageEndEvent(
 	eventIndex: number,
 	role: 'assistant',
 	content: LlmAssistantMessage['content'],
+	overrides?: Partial<AttachedAgentEvent>,
 ): Extract<AttachedAgentEvent, { type: 'message_end' }>;
 function messageEndEvent(
 	eventIndex: number,
 	role: 'user' | 'assistant',
 	content: LlmUserMessage['content'] | LlmAssistantMessage['content'],
+	overrides: Partial<AttachedAgentEvent> = {},
 ): Extract<AttachedAgentEvent, { type: 'message_end' }> {
 	const message =
 		role === 'user'
@@ -781,6 +1170,7 @@ function messageEndEvent(
 
 	return {
 		...agentEventBase(eventIndex),
+		...overrides,
 		type: 'message_end',
 		turnId: 'turn-1',
 		message,
@@ -804,9 +1194,11 @@ function thinkingDeltaEvent(
 	eventIndex: number,
 	delta: string,
 	contentIndex?: number,
+	overrides: Partial<AttachedAgentEvent> = {},
 ): Extract<AttachedAgentEvent, { type: 'thinking_delta' }> {
 	return {
 		...agentEventBase(eventIndex),
+		...overrides,
 		type: 'thinking_delta',
 		delta,
 		contentIndex,
@@ -816,9 +1208,11 @@ function thinkingDeltaEvent(
 function toolStartEvent(
 	eventIndex: number,
 	args: unknown,
+	overrides: Partial<AttachedAgentEvent> = {},
 ): Extract<AttachedAgentEvent, { type: 'tool_start' }> {
 	return {
 		...agentEventBase(eventIndex),
+		...overrides,
 		type: 'tool_start',
 		toolName: 'search',
 		toolCallId: 'tool-1',
@@ -830,9 +1224,11 @@ function toolResultEvent(
 	eventIndex: number,
 	result: unknown,
 	isError = false,
+	overrides: Partial<AttachedAgentEvent> = {},
 ): Extract<AttachedAgentEvent, { type: 'tool' }> {
 	return {
 		...agentEventBase(eventIndex),
+		...overrides,
 		type: 'tool',
 		toolName: 'search',
 		toolCallId: 'tool-1',
@@ -842,9 +1238,13 @@ function toolResultEvent(
 	};
 }
 
-function turnEvent(eventIndex: number): Extract<AttachedAgentEvent, { type: 'turn' }> {
+function turnEvent(
+	eventIndex: number,
+	overrides: Partial<AttachedAgentEvent> = {},
+): Extract<AttachedAgentEvent, { type: 'turn' }> {
 	return {
 		...agentEventBase(eventIndex),
+		...overrides,
 		type: 'turn',
 		turnId: 'turn-1',
 		purpose: 'agent',
@@ -878,15 +1278,38 @@ function turnEvent(eventIndex: number): Extract<AttachedAgentEvent, { type: 'tur
 
 function submissionFailedEvent(
 	eventIndex: number,
+	overrides: Partial<AttachedAgentEvent> = {},
 ): Extract<AttachedAgentEvent, { type: 'submission_settled' }> {
 	return {
 		...agentEventBase(eventIndex),
+		...overrides,
 		type: 'submission_settled',
 		submissionId: 'submission-1',
 		outcome: 'failed',
 		error: {
 			message: 'failed',
 		},
+	};
+}
+
+function submissionCompletedEvent(
+	eventIndex: number,
+	overrides: Partial<Omit<Extract<AttachedAgentEvent, { type: 'submission_settled' }>, 'type' | 'outcome'>> = {},
+): Extract<AttachedAgentEvent, { type: 'submission_settled' }> {
+	return {
+		...agentEventBase(eventIndex),
+		...overrides,
+		type: 'submission_settled',
+		submissionId: String(overrides.submissionId ?? 'submission-1'),
+		outcome: 'completed',
+	};
+}
+
+function idleEvent(eventIndex: number, overrides: Partial<AttachedAgentEvent> = {}): Extract<AttachedAgentEvent, { type: 'idle' }> {
+	return {
+		...agentEventBase(eventIndex),
+		...overrides,
+		type: 'idle',
 	};
 }
 

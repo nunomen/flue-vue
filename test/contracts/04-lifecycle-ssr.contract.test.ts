@@ -1,10 +1,10 @@
-import type { AttachedAgentEvent, FlueEvent } from '@flue/sdk';
+import { createFlueClient, type AttachedAgentEvent, type FlueEvent } from '@flue/sdk';
 import { flushPromises, mount, renderToString } from '@vue/test-utils';
 import type { ShallowRef } from 'vue';
 import { defineComponent, effectScope, h, nextTick, shallowRef } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { useSubscribableSnapshot, type SubscribableSnapshot } from '../../src/bridge.ts';
-import { createFluePlugin, useFlueAgent, useFlueWorkflow } from '../../src/index.ts';
+import { createFluePlugin, useFlueAgent, useFlueClient, useFlueWorkflow } from '../../src/index.ts';
 import { createTestClient, pendingStream } from '../helpers/flue-test-client.ts';
 import { mountSetup } from '../helpers/vue-harness.ts';
 
@@ -97,7 +97,15 @@ describe('Vue lifecycle and SSR contracts', () => {
 		mounted.unmount();
 	});
 
-	it.todo('relative baseUrl behavior remains delegated to user-created SDK client');
+	it('relative baseUrl behavior remains delegated to user-created SDK client', () => {
+		const client = createFlueClient({ baseUrl: '/api' });
+		const mounted = mountSetup(() => useFlueClient(), {
+			plugins: [createFluePlugin({ client })],
+		});
+
+		expect(mounted.exposed).toBe(client);
+		mounted.unmount();
+	});
 
 	it('multiple concurrent component instances observe independently', async () => {
 		const client = createTestClient();

@@ -3,7 +3,13 @@ import { flushPromises, renderToString } from '@vue/test-utils';
 import { computed, defineComponent, effectScope, h, isProxy, nextTick, shallowRef } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { useFlueWorkflow } from '../../src/index.ts';
-import { createTestClient, finiteStream, pendingStream, throwingStream } from '../helpers/flue-test-client.ts';
+import {
+	createTestClient,
+	failingStream,
+	finiteStream,
+	pendingStream,
+	throwingStream,
+} from '../helpers/flue-test-client.ts';
 import { mountSetup } from '../helpers/vue-harness.ts';
 
 describe('useFlueWorkflow Vue contracts', () => {
@@ -343,7 +349,30 @@ describe('useFlueWorkflow Vue contracts', () => {
 		mounted.unmount();
 	});
 
-	it.todo('retries transient failures from the concrete durable checkpoint');
+	it('retries transient failures from the concrete durable checkpoint', async () => {
+		vi.useFakeTimers();
+		try {
+			const client = createTestClient();
+			vi.mocked(client.runs.stream)
+				.mockReturnValueOnce(failingStream<FlueEvent>([runStartEvent(0)], new Error('offline'), 'checkpoint-1'))
+				.mockReturnValueOnce(finiteStream<FlueEvent>([runEndEvent(1, 'done')], 'checkpoint-2'));
+			const mounted = mountSetup(() => useFlueWorkflow({ runId: 'run-1', client }));
+
+			await flushPromises();
+			await vi.advanceTimersByTimeAsync(1);
+			await flushPromises();
+
+			expect(client.runs.stream).toHaveBeenNthCalledWith(2, 'run-1', {
+				offset: 'checkpoint-1',
+				live: true,
+			});
+			expect(mounted.exposed.status.value).toBe('completed');
+			expect(mounted.exposed.events.value).toEqual([runStartEvent(0), runEndEvent(1, 'done')]);
+			mounted.unmount();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 	it('dedupes redelivered workflow events', async () => {
 		const client = createTestClient();
 		const event = runStartEvent(0);
@@ -393,8 +422,49 @@ describe('useFlueWorkflow Vue contracts', () => {
 		expect(client.runs.stream).toHaveBeenCalledTimes(1);
 		mounted.unmount();
 	});
-	it.todo('ignores stale checkpoints from disposed observers after replacement starts');
-	it.todo('does not cancel server-side work when local observation is disposed');
+	it('ignores stale checkpoints from disposed observers after replacement starts', async () => {
+		vi.useFakeTimers();
+		try {
+			const client = createTestClient();
+			const secondStream = pendingStream<FlueEvent>();
+			vi.mocked(client.runs.stream)
+				.mockReturnValueOnce(failingStream<FlueEvent>([runStartEvent(0)], new Error('offline'), 'old-checkpoint'))
+				.mockReturnValueOnce(secondStream);
+			const runId = shallowRef('run-1');
+			const mounted = mountSetup(() => useFlueWorkflow({ runId, client }));
+
+			await flushPromises();
+			runId.value = 'run-2';
+			await nextTick();
+			await vi.advanceTimersByTimeAsync(1);
+			await flushPromises();
+
+			expect(client.runs.stream).toHaveBeenCalledTimes(2);
+			expect(client.runs.stream).toHaveBeenLastCalledWith('run-2', {
+				offset: '-1',
+				live: true,
+			});
+			mounted.unmount();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('does not cancel server-side work when local observation is disposed', async () => {
+		const client = createTestClient();
+		const stream = pendingStream<FlueEvent>();
+		vi.mocked(client.runs.stream).mockReturnValue(stream);
+		const mounted = mountSetup(() => useFlueWorkflow({ runId: 'run-1', client }));
+
+		await nextTick();
+		mounted.unmount();
+
+		expect(stream.cancel).toHaveBeenCalledTimes(1);
+		expect(client.workflows.run).not.toHaveBeenCalled();
+		expect(client.workflows.invoke).not.toHaveBeenCalled();
+		expect(client.runs.get).not.toHaveBeenCalled();
+		expect(client.runs.events).not.toHaveBeenCalled();
+	});
 });
 
 function runStartEvent(eventIndex: number): FlueEvent {

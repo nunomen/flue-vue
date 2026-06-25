@@ -1,4 +1,4 @@
-import type { AttachedAgentEvent, FlueClient, FlueEventStream } from '@flue/sdk';
+import { IMAGE_DATA_OMITTED, type AttachedAgentEvent, type FlueClient, type FlueEventStream } from '@flue/sdk';
 import { computed, toValue } from 'vue';
 import type { SubscribableSnapshot } from './bridge.ts';
 import { useSubscribableSnapshot } from './bridge.ts';
@@ -82,6 +82,11 @@ class AgentSessionObserver implements AgentObserver {
 	#disposed = false;
 	#localMessageIndex = 0;
 	#seenEvents = new Set<string>();
+	#pendingSubmissions = new Set<string>();
+	#nextLiveOffset: string | undefined;
+	#liveStarted = false;
+	#retryWake: (() => void) | undefined;
+	#localSendError: Error | undefined;
 
 	constructor(readonly identity: AgentIdentity) {}
 
@@ -102,6 +107,8 @@ class AgentSessionObserver implements AgentObserver {
 
 	dispose(): void {
 		this.#disposed = true;
+		this.#retryWake?.();
+		this.#retryWake = undefined;
 		this.#stream?.cancel();
 		this.#listeners.clear();
 	}
@@ -123,17 +130,29 @@ class AgentSessionObserver implements AgentObserver {
 			status: 'submitted',
 			error: undefined,
 		});
+		this.#localSendError = undefined;
 
 		try {
-			await this.identity.client.agents.send(this.identity.name, this.identity.id, {
+			const admission = await this.identity.client.agents.send(this.identity.name, this.identity.id, {
 				message,
 				images: options.images,
 			});
 			if (this.#disposed) return;
+			this.#pendingSubmissions.add(admission.submissionId);
 			this.#publish({
 				...this.#snapshot,
+				messages: this.#snapshot.messages.map((item) =>
+					item.id === optimisticId ? { ...item, id: optimisticMessageId(admission.submissionId) } : item,
+				),
 				status: 'streaming',
 			});
+			if (!this.#liveStarted && this.#snapshot.historyReady) {
+				this.#nextLiveOffset = admission.offset;
+				void this.#observeLive(admission.offset);
+			} else if (!this.#liveStarted) {
+				this.#nextLiveOffset = admission.offset;
+			}
+			this.#wakeRetry();
 		} catch (error) {
 			if (this.#disposed) return;
 			this.#publish({
@@ -142,71 +161,134 @@ class AgentSessionObserver implements AgentObserver {
 				status: 'error',
 				error: normalizeError(error),
 			});
+			this.#localSendError = normalizeError(error);
 			throw error;
 		}
 	}
 
 	async #hydrateThenObserve() {
 		try {
-			const historyEvents = await this.#consumeHistory();
+			const { events: historyEvents, offset } = await this.#consumeHistory();
 			if (this.#disposed) return;
 
+			const localSnapshot = this.#snapshot;
 			const hydrated = historyEvents.reduce(reduceAgentEvent, emptyAgentSnapshot);
 			this.#publish({
 				...hydrated,
+				messages: mergeHydratedAndLocalMessages(hydrated.messages, localSnapshot.messages),
 				historyReady: true,
-				status: hydrated.status === 'error' ? 'error' : 'idle',
+				status: this.#localSendError ? 'error' : hydrated.status === 'error' ? 'error' : 'idle',
+				error: this.#localSendError ?? hydrated.error,
 			});
 
-			await this.#observeLive(this.#stream?.offset ?? 'now');
+			await this.#observeLive(this.#nextLiveOffset ?? offset);
 		} catch (error) {
 			if (this.#disposed) return;
 
 			if (isStatusError(error, 404)) {
 				this.#publish({
 					...emptyAgentSnapshot,
+					messages: this.#snapshot.messages,
 					historyReady: true,
-					status: 'idle',
+					status: this.#localSendError ? 'error' : 'idle',
+					error: this.#localSendError,
 				});
 				return;
 			}
 
+			await this.#retryHydration(error);
+		}
+	}
+
+	async #retryHydration(error: unknown) {
+		let retryAttempt = 0;
+
+		while (!this.#disposed) {
 			this.#publish({
 				...this.#snapshot,
 				status: 'error',
 				error: normalizeError(error),
 			});
+			await this.#waitForRetry(retryAttempt++);
+			if (this.#disposed) return;
+
+			try {
+				const { events: historyEvents, offset } = await this.#consumeHistory();
+				if (this.#disposed) return;
+
+				const localSnapshot = this.#snapshot;
+				const hydrated = historyEvents.reduce(reduceAgentEvent, emptyAgentSnapshot);
+				this.#publish({
+					...hydrated,
+					messages: mergeHydratedAndLocalMessages(hydrated.messages, localSnapshot.messages),
+					historyReady: true,
+					status: this.#localSendError ? 'error' : 'idle',
+					error: this.#localSendError,
+				});
+
+				await this.#observeLive(this.#nextLiveOffset ?? offset);
+				return;
+			} catch (nextError) {
+				if (this.#disposed) return;
+				if (isStatusError(nextError, 404)) {
+					this.#publish({
+						...emptyAgentSnapshot,
+						messages: this.#snapshot.messages,
+						historyReady: true,
+						status: this.#localSendError ? 'error' : 'idle',
+						error: this.#localSendError,
+					});
+					return;
+				}
+				error = nextError;
+			}
 		}
 	}
 
-	async #consumeHistory(): Promise<AttachedAgentEvent[]> {
+	async #consumeHistory(): Promise<{ events: AttachedAgentEvent[]; offset: string }> {
 		const events: AttachedAgentEvent[] = [];
 		const history = this.identity.history ?? 100;
-		this.#stream = this.identity.client.agents.stream(this.identity.name, this.identity.id, {
+		const stream = this.identity.client.agents.stream(this.identity.name, this.identity.id, {
 			offset: '-1',
 			tail: history === 'all' ? undefined : history,
 			live: false,
 		});
+		this.#stream = stream;
 
-		for await (const event of this.#stream) {
-			if (this.#disposed) return events;
+		for await (const event of stream) {
+			if (this.#disposed) return { events, offset: stream.offset };
 			events.push(event);
 		}
 
-		return events;
+		return { events, offset: stream.offset };
 	}
 
 	async #observeLive(offset: string) {
 		if (this.#disposed) return;
+		this.#liveStarted = true;
+		this.#nextLiveOffset = offset;
+		let retryAttempt = 0;
 
-		this.#stream = this.identity.client.agents.stream(this.identity.name, this.identity.id, {
-			offset,
-			live: this.identity.live ?? true,
-		});
+		while (!this.#disposed) {
+			try {
+				this.#stream = this.identity.client.agents.stream(this.identity.name, this.identity.id, {
+					offset: this.#nextLiveOffset,
+					live: this.identity.live ?? true,
+				});
 
-		for await (const event of this.#stream) {
-			if (this.#disposed) return;
-			this.#applyLiveEvent(event);
+				for await (const event of this.#stream) {
+					if (this.#disposed) return;
+					this.#applyLiveEvent(event);
+					this.#nextLiveOffset = this.#stream.offset;
+					retryAttempt = 0;
+				}
+
+				return;
+			} catch {
+				if (this.#disposed) return;
+				this.#nextLiveOffset = this.#stream?.offset ?? this.#nextLiveOffset;
+				await this.#waitForRetry(retryAttempt++);
+			}
 		}
 	}
 
@@ -214,12 +296,36 @@ class AgentSessionObserver implements AgentObserver {
 		const key = agentEventKey(event);
 		if (this.#seenEvents.has(key)) return;
 		this.#seenEvents.add(key);
-		this.#publish(reduceAgentEvent(this.#snapshot, event));
+		if (event.submissionId && (event.type === 'idle' || event.type === 'submission_settled')) {
+			this.#pendingSubmissions.delete(event.submissionId);
+		}
+		this.#publish(adjustPendingStatus(reduceAgentEvent(this.#snapshot, event), this.#pendingSubmissions));
 	}
 
 	#publish(snapshot: AgentSnapshot) {
 		this.#snapshot = snapshot;
 		for (const listener of this.#listeners) listener();
+	}
+
+	#wakeRetry() {
+		this.#retryWake?.();
+		this.#retryWake = undefined;
+	}
+
+	#waitForRetry(attempt: number): Promise<void> {
+		const delay = Math.min(2 ** attempt, 50);
+		return new Promise((resolve) => {
+			const timeout = setTimeout(() => {
+				if (this.#retryWake === wake) this.#retryWake = undefined;
+				resolve();
+			}, delay);
+			const wake = () => {
+				clearTimeout(timeout);
+				if (this.#retryWake === wake) this.#retryWake = undefined;
+				resolve();
+			};
+			this.#retryWake = wake;
+		});
 	}
 }
 
@@ -228,12 +334,18 @@ function reduceAgentEvent(snapshot: AgentSnapshot, event: AttachedAgentEvent): A
 
 	if (event.type === 'message_end') {
 		const message = messageFromEvent(event, snapshot.messages);
-		messages = message ? upsertMessage(snapshot.messages, message) : snapshot.messages;
+		messages = message
+			? message.role === 'user'
+				? reconcileUserMessage(snapshot.messages, event, message)
+				: upsertMessage(snapshot.messages, message)
+			: snapshot.messages;
 	} else if (event.type === 'text_delta') {
-		messages = upsertAssistantMessage(snapshot.messages, event, (message) => ({
-			...message,
-			parts: appendTextDelta(message.parts, event.text),
-		}));
+		messages = canPlaceAssistantDelta(event)
+			? upsertAssistantMessage(snapshot.messages, event, (message) => ({
+					...message,
+					parts: appendTextDelta(message.parts, event.text),
+				}))
+			: snapshot.messages;
 	} else if (event.type === 'thinking_delta') {
 		messages = upsertAssistantMessage(snapshot.messages, event, (message) => ({
 			...message,
@@ -303,6 +415,71 @@ function messageFromEvent(
 	}
 
 	return undefined;
+}
+
+function reconcileUserMessage(
+	messages: UIMessage[],
+	event: AttachedAgentEvent,
+	durableMessage: UIMessage,
+): UIMessage[] {
+	if (!event.submissionId) return upsertMessage(messages, durableMessage);
+
+	const submissionId = event.submissionId;
+	const localIndex = messages.findIndex((message) => message.id === optimisticMessageId(submissionId));
+	if (localIndex === -1) return upsertMessage(messages, durableMessage);
+
+	const localMessage = messages[localIndex];
+	const next = messages.slice();
+	next[localIndex] = mergeDurableUserMessage(localMessage, durableMessage);
+	return next;
+}
+
+function mergeDurableUserMessage(localMessage: UIMessage | undefined, durableMessage: UIMessage): UIMessage {
+	if (!localMessage) return durableMessage;
+
+	return {
+		...durableMessage,
+		parts: durableMessage.parts.map((part, index) => {
+			if (part.type !== 'file' || part.url !== IMAGE_DATA_OMITTED) return part;
+			const localPart = localMessage.parts[index];
+			if (localPart?.type !== 'file') return part;
+			return {
+				...part,
+				url: localPart.url,
+			};
+		}),
+	};
+}
+
+function mergeHydratedAndLocalMessages(hydratedMessages: UIMessage[], localMessages: UIMessage[]): UIMessage[] {
+	const next = hydratedMessages.slice();
+	for (const localMessage of localMessages) {
+		if (!isOptimisticMessage(localMessage)) continue;
+		if (hasDurableSubmission(next, localMessage.id)) continue;
+		next.push(localMessage);
+	}
+	return next;
+}
+
+function hasDurableSubmission(messages: UIMessage[], optimisticId: string): boolean {
+	const submissionId = optimisticId.slice('local:'.length);
+	return messages.some((message) => message.id.includes(`:${submissionId}:`));
+}
+
+function isOptimisticMessage(message: UIMessage): boolean {
+	return message.id.startsWith('local:');
+}
+
+function canPlaceAssistantDelta(event: AttachedAgentEvent): boolean {
+	return Boolean(event.submissionId || event.dispatchId || event.turnId);
+}
+
+function adjustPendingStatus(snapshot: AgentSnapshot, pendingSubmissions: Set<string>): AgentSnapshot {
+	if (snapshot.status !== 'idle' || pendingSubmissions.size === 0) return snapshot;
+	return {
+		...snapshot,
+		status: 'streaming',
+	};
 }
 
 function messageContentParts(content: unknown): UIMessagePart[] {
@@ -509,6 +686,10 @@ function upsertMessage(messages: UIMessage[], message: UIMessage): UIMessage[] {
 	const next = messages.slice();
 	next[existingIndex] = message;
 	return next;
+}
+
+function optimisticMessageId(submissionId: string): string {
+	return `local:${submissionId}`;
 }
 
 function assistantMessageId(event: AttachedAgentEvent): string {
