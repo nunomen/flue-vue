@@ -131,6 +131,60 @@ async function submit() {
 
 This is only the browser side. A real quickstart also needs a [Flue](https://flueframework.com/) application exposing the matching agent route under the same `baseUrl`, for example `/api/agents/triage/:id`.
 
+## Provider Component
+
+The app plugin is the normal application setup path. Component libraries and tests can use the renderless provider instead:
+
+```vue
+<script setup lang="ts">
+import { createFlueClient } from '@flue/sdk';
+import { FlueProvider } from '@flue/vue';
+import AgentChat from './AgentChat.vue';
+
+const client = createFlueClient({ baseUrl: '/api' });
+</script>
+
+<template>
+	<FlueProvider :client="client">
+		<AgentChat conversation-id="ticket-8472" />
+	</FlueProvider>
+</template>
+```
+
+## Workflow Observation
+
+Workflow invocation and workflow-run observation are separate operations. Keep the returned `runId`, then observe it from Vue:
+
+```vue
+<script setup lang="ts">
+import { useFlueWorkflow } from '@flue/vue';
+
+const props = defineProps<{
+	runId?: string;
+}>();
+
+const { events, logs, status, result, error } = useFlueWorkflow({
+	runId: () => props.runId,
+});
+</script>
+
+<template>
+	<section>
+		<p>{{ status }}</p>
+		<pre v-if="error">{{ error }}</pre>
+		<pre v-else-if="status === 'completed'">{{ result }}</pre>
+		<ul>
+			<li v-for="log in logs" :key="`${log.runId}:${log.eventIndex}`">
+				{{ log.level }}: {{ log.message }}
+			</li>
+		</ul>
+		<span hidden>{{ events.length }}</span>
+	</section>
+</template>
+```
+
+The workflow module must expose and authorize run reads with a `runs` handler before browser clients can observe `/runs/:runId`.
+
 ## Authentication Model
 
 `@flue/vue` should follow the same authentication model as [`@flue/react`](https://www.npmjs.com/package/@flue/react): the adapter does not own auth. Authentication belongs to the [`@flue/sdk`](https://www.npmjs.com/package/@flue/sdk) client and to the server routes that expose Flue.
@@ -149,7 +203,7 @@ For refreshed or reactive auth state, use a header factory so the SDK resolves h
 ```ts
 const client = createFlueClient({
 	baseUrl: '/api',
-	headers: () => {
+	headers: (): Record<string, string> => {
 		const token = authStore.token;
 		return token ? { authorization: `Bearer ${token}` } : {};
 	},
@@ -168,10 +222,54 @@ Workflow run reads are separate from workflow invocation. A workflow must expose
 
 One transport nuance matters for implementation: long-polling resolves headers for each request, while SSE keeps the headers used to open the current connection until it reconnects. If auth changes while an SSE stream is open, the Vue adapter should support replacing the client or observer so a new connection uses fresh credentials.
 
+## Nuxt Setup
+
+Use a client plugin when the SDK client uses a relative browser `baseUrl`:
+
+```ts
+// plugins/flue.client.ts
+import { createFlueClient } from '@flue/sdk';
+import { createFluePlugin } from '@flue/vue';
+
+export default defineNuxtPlugin((nuxtApp) => {
+	const client = createFlueClient({ baseUrl: '/api' });
+	nuxtApp.vueApp.use(createFluePlugin({ client }));
+});
+```
+
+If a client is created during server rendering, use an absolute URL:
+
+```ts
+const client = createFlueClient({
+	baseUrl: 'https://example.com/api',
+});
+```
+
+## Return Values and Lifecycle
+
+The composables return individual computed refs instead of a single reactive object. Destructuring keeps reactivity intact:
+
+```ts
+const { messages, status, sendMessage } = useFlueAgent({
+	name: 'triage',
+	id: 'ticket-8472',
+});
+```
+
+Agent status is one of `idle`, `connecting`, `submitted`, `streaming`, or `error`. Workflow status is one of `idle`, `connecting`, `running`, `completed`, `errored`, or `disconnected`.
+
+Message parts currently include text, reasoning, dynamic tool calls, and file parts for images. Live mode is delegated to the SDK and can use the default long-poll behavior or `'sse'`.
+
+During SSR, `useFlueAgent()` and `useFlueWorkflow()` return dormant snapshots and do not open streams. Stream observation starts after client mount, or immediately in a standalone client-side `effectScope`.
+
+Disposing a Vue observer only closes the local stream read. It does not cancel server-side agent work or workflow runs.
+
 ## Current Status
 
-- `src/index.ts` contains the public API shape and dormant stubs.
-- `test/contracts` contains passing Vue API-shape smoke tests and exhaustive `todo` contracts.
+- `src/index.ts` exports provider, agent, workflow, and shared SDK types.
+- `useFlueAgent()` covers client resolution, mounted observation, history hydration, live tailing, optimistic send admission, streamed assistant text/reasoning/tool parts, terminal reconciliation, and fresh-conversation `404` handling.
+- `useFlueWorkflow()` covers client resolution, mounted observation, run replay, log selection, terminal states, disconnected states, and event dedupe.
+- `test/contracts` contains active contract coverage plus remaining todos for retry/backoff and deeper optimistic echo reconciliation.
 - `docs/implementation-plan.md` is the source of truth for the build plan.
 
 ## Commands

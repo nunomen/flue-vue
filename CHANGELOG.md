@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Documented provider-component, workflow observation, Nuxt, SSR, return-ref, status, message-part, and local-disposal behavior, with typechecked example contracts.
 - Added streamed agent message reduction for text, reasoning, tool calls, terminal reconciliation, model/usage metadata, live offset continuation, and initial `404` empty-history handling.
 - Expanded workflow observer contracts for `run_resume`, shallow event snapshots, terminal disconnect status codes, redelivered event dedupe, and no-reconnect terminal states.
 - Hardened Vue lifecycle coverage for stream observers, including SSR no-op setup, component unmount disposal, standalone `effectScope` cleanup, independent concurrent observers, and stale callback protection.
