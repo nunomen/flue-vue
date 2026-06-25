@@ -1,9 +1,9 @@
 import type { FlueEvent } from '@flue/sdk';
 import { flushPromises, renderToString } from '@vue/test-utils';
-import { computed, defineComponent, effectScope, h, nextTick, shallowRef } from 'vue';
+import { computed, defineComponent, effectScope, h, isProxy, nextTick, shallowRef } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { useFlueWorkflow } from '../../src/index.ts';
-import { createTestClient, finiteStream, pendingStream } from '../helpers/flue-test-client.ts';
+import { createTestClient, finiteStream, pendingStream, throwingStream } from '../helpers/flue-test-client.ts';
 import { mountSetup } from '../helpers/vue-harness.ts';
 
 describe('useFlueWorkflow Vue contracts', () => {
@@ -185,7 +185,18 @@ describe('useFlueWorkflow Vue contracts', () => {
 
 		expect(stream.cancel).toHaveBeenCalledTimes(1);
 	});
-	it.todo('uses shallow snapshot storage so workflow events are not deeply proxied');
+	it('uses shallow snapshot storage so workflow events are not deeply proxied', async () => {
+		const client = createTestClient();
+		const event = runStartEvent(0);
+		vi.mocked(client.runs.stream).mockReturnValue(finiteStream<FlueEvent>([event]));
+		const mounted = mountSetup(() => useFlueWorkflow({ runId: 'run-1', client }));
+
+		await flushPromises();
+
+		expect(isProxy(mounted.exposed.events.value)).toBe(false);
+		expect(isProxy(mounted.exposed.events.value[0])).toBe(false);
+		mounted.unmount();
+	});
 
 	it('replays completed workflow run history', async () => {
 		const client = createTestClient();
@@ -238,7 +249,19 @@ describe('useFlueWorkflow Vue contracts', () => {
 		mounted.unmount();
 	});
 
-	it.todo('reports running after run_resume');
+	it('reports running after run_resume', async () => {
+		const client = createTestClient();
+		const stream = pendingStream<FlueEvent>();
+		vi.mocked(client.runs.stream).mockReturnValue(stream);
+		const mounted = mountSetup(() => useFlueWorkflow({ runId: 'run-1', client }));
+
+		await nextTick();
+		stream.push(runResumeEvent(0));
+		await flushPromises();
+
+		expect(mounted.exposed.status.value).toBe('running');
+		mounted.unmount();
+	});
 
 	it('reports completed and exposes result from successful run_end', async () => {
 		const client = createTestClient();
@@ -278,14 +301,98 @@ describe('useFlueWorkflow Vue contracts', () => {
 		mounted.unmount();
 	});
 
-	it.todo('treats 401 as terminal disconnected');
-	it.todo('treats 403 as terminal disconnected');
-	it.todo('treats 404 as terminal disconnected');
+	it('treats 401 as terminal disconnected', async () => {
+		const client = createTestClient();
+		const error = { status: 401 };
+		vi.mocked(client.runs.stream).mockReturnValue(throwingStream<FlueEvent>(error));
+		const mounted = mountSetup(() => useFlueWorkflow({ runId: 'run-1', client }));
+
+		await flushPromises();
+
+		expect(mounted.exposed.status.value).toBe('disconnected');
+		expect(mounted.exposed.error.value).toBe(error);
+		expect(client.runs.stream).toHaveBeenCalledTimes(1);
+		mounted.unmount();
+	});
+
+	it('treats 403 as terminal disconnected', async () => {
+		const client = createTestClient();
+		const error = { status: 403 };
+		vi.mocked(client.runs.stream).mockReturnValue(throwingStream<FlueEvent>(error));
+		const mounted = mountSetup(() => useFlueWorkflow({ runId: 'run-1', client }));
+
+		await flushPromises();
+
+		expect(mounted.exposed.status.value).toBe('disconnected');
+		expect(mounted.exposed.error.value).toBe(error);
+		expect(client.runs.stream).toHaveBeenCalledTimes(1);
+		mounted.unmount();
+	});
+
+	it('treats 404 as terminal disconnected', async () => {
+		const client = createTestClient();
+		const error = { status: 404 };
+		vi.mocked(client.runs.stream).mockReturnValue(throwingStream<FlueEvent>(error));
+		const mounted = mountSetup(() => useFlueWorkflow({ runId: 'run-1', client }));
+
+		await flushPromises();
+
+		expect(mounted.exposed.status.value).toBe('disconnected');
+		expect(mounted.exposed.error.value).toBe(error);
+		expect(client.runs.stream).toHaveBeenCalledTimes(1);
+		mounted.unmount();
+	});
+
 	it.todo('retries transient failures from the concrete durable checkpoint');
-	it.todo('dedupes redelivered workflow events');
-	it.todo('does not reconnect after completed terminal state');
-	it.todo('does not reconnect after errored terminal state');
-	it.todo('does not reconnect after clean closure without run_end');
+	it('dedupes redelivered workflow events', async () => {
+		const client = createTestClient();
+		const event = runStartEvent(0);
+		vi.mocked(client.runs.stream).mockReturnValue(finiteStream<FlueEvent>([event, event]));
+		const mounted = mountSetup(() => useFlueWorkflow({ runId: 'run-1', client }));
+
+		await flushPromises();
+
+		expect(mounted.exposed.events.value).toEqual([event]);
+		mounted.unmount();
+	});
+
+	it('does not reconnect after completed terminal state', async () => {
+		const client = createTestClient();
+		vi.mocked(client.runs.stream).mockReturnValue(finiteStream<FlueEvent>([runEndEvent(0, 'done')]));
+		const mounted = mountSetup(() => useFlueWorkflow({ runId: 'run-1', client }));
+
+		await flushPromises();
+
+		expect(mounted.exposed.status.value).toBe('completed');
+		expect(client.runs.stream).toHaveBeenCalledTimes(1);
+		mounted.unmount();
+	});
+
+	it('does not reconnect after errored terminal state', async () => {
+		const client = createTestClient();
+		vi.mocked(client.runs.stream).mockReturnValue(
+			finiteStream<FlueEvent>([runEndEvent(0, undefined, true, 'failed')]),
+		);
+		const mounted = mountSetup(() => useFlueWorkflow({ runId: 'run-1', client }));
+
+		await flushPromises();
+
+		expect(mounted.exposed.status.value).toBe('errored');
+		expect(client.runs.stream).toHaveBeenCalledTimes(1);
+		mounted.unmount();
+	});
+
+	it('does not reconnect after clean closure without run_end', async () => {
+		const client = createTestClient();
+		vi.mocked(client.runs.stream).mockReturnValue(finiteStream<FlueEvent>([runStartEvent(0)]));
+		const mounted = mountSetup(() => useFlueWorkflow({ runId: 'run-1', client }));
+
+		await flushPromises();
+
+		expect(mounted.exposed.status.value).toBe('disconnected');
+		expect(client.runs.stream).toHaveBeenCalledTimes(1);
+		mounted.unmount();
+	});
 	it.todo('ignores stale checkpoints from disposed observers after replacement starts');
 	it.todo('does not cancel server-side work when local observation is disposed');
 });
@@ -300,6 +407,18 @@ function runStartEvent(eventIndex: number): FlueEvent {
 		workflowName: 'summarize',
 		startedAt: '2026-06-25T00:00:00.000Z',
 		input: {},
+	};
+}
+
+function runResumeEvent(eventIndex: number): FlueEvent {
+	return {
+		type: 'run_resume',
+		v: 3,
+		eventIndex,
+		timestamp: `2026-06-25T00:00:0${eventIndex}.000Z`,
+		runId: 'run-1',
+		workflowName: 'summarize',
+		startedAt: '2026-06-25T00:00:00.000Z',
 	};
 }
 

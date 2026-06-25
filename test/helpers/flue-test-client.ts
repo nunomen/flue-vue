@@ -32,6 +32,16 @@ export function finiteStream<T>(events: T[], offset = 'offset-1'): FlueEventStre
 	};
 }
 
+export function throwingStream<T>(error: unknown, offset = 'offset-error'): FlueEventStream<T> {
+	return {
+		offset,
+		cancel: vi.fn(),
+		async *[Symbol.asyncIterator]() {
+			throw error;
+		},
+	};
+}
+
 export function pendingStream<T>(offset = '-1'): FlueEventStream<T> & { push(event: T): void } {
 	const values: T[] = [];
 	let wake: (() => void) | undefined;
