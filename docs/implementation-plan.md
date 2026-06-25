@@ -2,15 +2,23 @@
 
 ## Objective
 
-Build a first-class Vue 3 client package for Flue that feels native in Vue applications while preserving the behavior already proven by `@flue/react`.
+Build a first-class Vue 3 client package for [Flue](https://flueframework.com/) that feels native in Vue applications while preserving the behavior already proven by [`@flue/react`](https://www.npmjs.com/package/@flue/react).
 
 The adapter should not become a React-shaped port. Vue users should get Composition API composables, typed app-level injection, ref-friendly options, SSR-safe lifecycle behavior, and predictable readonly state.
+
+Upstream references:
+
+- [Flue website](https://flueframework.com/)
+- [withastro/flue GitHub repository](https://github.com/withastro/flue)
+- [`@flue/sdk` on npm](https://www.npmjs.com/package/@flue/sdk)
+- [`@flue/react` on npm](https://www.npmjs.com/package/@flue/react)
+- [`@flue/runtime` on npm](https://www.npmjs.com/package/@flue/runtime)
 
 ## Source Inspection Summary
 
 ### Flue React
 
-The React package is a thin lifecycle bridge over framework-neutral state machines:
+The [`@flue/react`](https://www.npmjs.com/package/@flue/react) package is a thin lifecycle bridge over framework-neutral state machines:
 
 - `FlueProvider` stores a `FlueClient` in React context.
 - `useFlueAgent()` creates an `AgentSession`, starts it after React commits, disposes it on unmount, and subscribes through `useSyncExternalStore`.
@@ -79,7 +87,7 @@ packages/vue/
   use-workflow.ts
 ```
 
-This local project starts as a standalone design/test harness. If implemented against upstream Flue, first extract the React session and reducer code into shared core, then implement Vue on top of that core.
+This local project starts as a standalone design/test harness. If implemented against upstream [withastro/flue](https://github.com/withastro/flue), first extract the React session and reducer code into shared core, then implement Vue on top of that core.
 
 ## Public API
 
@@ -151,11 +159,11 @@ async function submit() {
 </script>
 ```
 
-The quickstart must state that the Vue app is only the browser side. A Flue application still needs to expose matching routes, such as `/api/agents/triage/:id`, through `flue()`.
+The quickstart must state that the Vue app is only the browser side. A [Flue](https://flueframework.com/) application still needs to expose matching routes, such as `/api/agents/triage/:id`, through `flue()`.
 
 ### Authentication
 
-`@flue/vue` should not implement a separate authentication layer. It should mirror `@flue/react`: users configure auth on the `@flue/sdk` client and provide that client to Vue.
+`@flue/vue` should not implement a separate authentication layer. It should mirror [`@flue/react`](https://www.npmjs.com/package/@flue/react): users configure auth on the [`@flue/sdk`](https://www.npmjs.com/package/@flue/sdk) client and provide that client to Vue.
 
 Static bearer token:
 

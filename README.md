@@ -1,6 +1,12 @@
 # `@flue/vue`
 
-Test-first workspace for a native Vue 3 adapter for Flue.
+Test-first workspace for a native Vue 3 adapter for [Flue](https://flueframework.com/), the agent and workflow framework developed in the [withastro/flue](https://github.com/withastro/flue) repository.
+
+Related Flue packages:
+
+- [`@flue/sdk`](https://www.npmjs.com/package/@flue/sdk) for HTTP, auth headers, and Durable Streams transport.
+- [`@flue/react`](https://www.npmjs.com/package/@flue/react) as the existing React client this Vue adapter mirrors.
+- [`@flue/runtime`](https://www.npmjs.com/package/@flue/runtime) for server-side Flue applications.
 
 This repository intentionally starts with API design, contract tests, fixtures, and stubs. The next implementation pass should turn the `todo` contracts into active tests as each capability lands.
 
@@ -120,11 +126,11 @@ async function submit() {
 </template>
 ```
 
-This is only the browser side. A real quickstart also needs a Flue application exposing the matching agent route under the same `baseUrl`, for example `/api/agents/triage/:id`.
+This is only the browser side. A real quickstart also needs a [Flue](https://flueframework.com/) application exposing the matching agent route under the same `baseUrl`, for example `/api/agents/triage/:id`.
 
 ## Authentication Model
 
-`@flue/vue` should follow the same authentication model as `@flue/react`: the adapter does not own auth. Authentication belongs to the `@flue/sdk` client and to the server routes that expose Flue.
+`@flue/vue` should follow the same authentication model as [`@flue/react`](https://www.npmjs.com/package/@flue/react): the adapter does not own auth. Authentication belongs to the [`@flue/sdk`](https://www.npmjs.com/package/@flue/sdk) client and to the server routes that expose Flue.
 
 Client-side auth is configured when creating the SDK client:
 
@@ -178,4 +184,5 @@ pnpm run check
 
 - VueUse: `MaybeRefOrGetter`, `toValue`, `shallowRef`, options objects, scope disposal, and SSR-safe composables.
 - Pinia: installable app plugin, typed injection key, `app.provide`, and raw external instances.
-- Flue React: preserve session, reducer, hydration, reconnect, optimistic send, and workflow-run semantics while exposing them through Vue-native refs.
+- [`@flue/react`](https://www.npmjs.com/package/@flue/react): preserve session, reducer, hydration, reconnect, optimistic send, and workflow-run semantics while exposing them through Vue-native refs.
+- [Flue source](https://github.com/withastro/flue): align package layout, docs, and test expectations with the upstream project.
