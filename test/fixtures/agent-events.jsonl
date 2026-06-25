@@ -1,0 +1,12 @@
+{"v":3,"type":"message_end","message":{"role":"user","content":"Need help triaging ticket 8472"},"eventIndex":0,"timestamp":"2026-06-25T12:00:00.000Z","instanceId":"ticket-8472","submissionId":"submission-1"}
+{"v":3,"type":"message_start","message":{"role":"assistant","content":[]},"eventIndex":1,"timestamp":"2026-06-25T12:00:01.000Z","instanceId":"ticket-8472","submissionId":"submission-1","turnId":"turn-1"}
+{"v":3,"type":"thinking_start","contentIndex":0,"eventIndex":2,"timestamp":"2026-06-25T12:00:01.100Z","instanceId":"ticket-8472","submissionId":"submission-1","turnId":"turn-1"}
+{"v":3,"type":"thinking_delta","contentIndex":0,"delta":"checking priority","eventIndex":3,"timestamp":"2026-06-25T12:00:01.200Z","instanceId":"ticket-8472","submissionId":"submission-1","turnId":"turn-1"}
+{"v":3,"type":"thinking_end","contentIndex":0,"content":"checking priority and owner","eventIndex":4,"timestamp":"2026-06-25T12:00:01.300Z","instanceId":"ticket-8472","submissionId":"submission-1","turnId":"turn-1"}
+{"v":3,"type":"text_delta","text":"This looks like a billing escalation.","eventIndex":5,"timestamp":"2026-06-25T12:00:01.400Z","instanceId":"ticket-8472","submissionId":"submission-1","turnId":"turn-1"}
+{"v":3,"type":"tool_start","toolName":"lookupTicket","toolCallId":"tool-1","eventIndex":6,"timestamp":"2026-06-25T12:00:01.500Z","instanceId":"ticket-8472","submissionId":"submission-1","turnId":"turn-1"}
+{"v":3,"type":"tool","toolName":"lookupTicket","toolCallId":"tool-1","isError":false,"result":{"owner":"billing","priority":"high"},"durationMs":18,"eventIndex":7,"timestamp":"2026-06-25T12:00:01.600Z","instanceId":"ticket-8472","submissionId":"submission-1","turnId":"turn-1"}
+{"v":3,"type":"turn","turnId":"turn-1","request":{"providerId":"fixture-provider","requestedModel":"fixture-model"},"response":{"usage":{"totalTokens":21}},"eventIndex":8,"timestamp":"2026-06-25T12:00:01.700Z","instanceId":"ticket-8472","submissionId":"submission-1"}
+{"v":3,"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"checking priority and owner"},{"type":"text","text":"This looks like a billing escalation."},{"type":"toolCall","id":"tool-1","name":"lookupTicket","arguments":{"ticketId":"8472"}}]},"eventIndex":9,"timestamp":"2026-06-25T12:00:02.000Z","instanceId":"ticket-8472","submissionId":"submission-1","turnId":"turn-1"}
+{"v":3,"type":"idle","eventIndex":10,"timestamp":"2026-06-25T12:00:02.100Z","instanceId":"ticket-8472","submissionId":"submission-1"}
+

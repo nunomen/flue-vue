@@ -1,0 +1,8 @@
+packages:
+  - .
+
+settings:
+  auto-install-peers: true
+  strict-peer-dependencies: false
+  shared-workspace-lockfile: true
+
