@@ -7,11 +7,11 @@ export function createTestClient(overrides: Partial<FlueClient> = {}): FlueClien
 			prompt: vi.fn(),
 			send: vi.fn(),
 			wait: vi.fn(),
-			stream: vi.fn(),
+			stream: vi.fn(() => pendingStream()),
 		},
 		runs: {
 			get: vi.fn(),
-			stream: vi.fn(),
+			stream: vi.fn(() => pendingStream()),
 			events: vi.fn(),
 		},
 		workflows: {
@@ -36,16 +36,17 @@ export function pendingStream<T>(offset = '-1'): FlueEventStream<T> & { push(eve
 	const values: T[] = [];
 	let wake: (() => void) | undefined;
 	let canceled = false;
+	const cancel = vi.fn(() => {
+		canceled = true;
+		wake?.();
+	});
 	return {
 		offset,
 		push(event) {
 			values.push(event);
 			wake?.();
 		},
-		cancel() {
-			canceled = true;
-			wake?.();
-		},
+		cancel,
 		async *[Symbol.asyncIterator]() {
 			while (!canceled) {
 				const value = values.shift();
@@ -55,4 +56,3 @@ export function pendingStream<T>(offset = '-1'): FlueEventStream<T> & { push(eve
 		},
 	};
 }
-

@@ -78,11 +78,10 @@ describe('Vue API shape smoke tests', () => {
 			}),
 		);
 
-		expect(mounted.exposed.status.value).toBe('idle');
+		expect(mounted.exposed.status.value).toBe('connecting');
 		ticketId.value = 'ticket-8473';
 		await nextTick();
-		expect(mounted.exposed.status.value).toBe('idle');
+		expect(mounted.exposed.status.value).toBe('connecting');
 		mounted.unmount();
 	});
 });
-

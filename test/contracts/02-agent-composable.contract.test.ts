@@ -1,20 +1,253 @@
-import { describe, it } from 'vitest';
+import type { AgentPromptImage, AgentSendResult, AttachedAgentEvent } from '@flue/sdk';
+import { computed, nextTick, shallowRef } from 'vue';
+import { describe, expect, it, vi } from 'vitest';
+import { useFlueAgent } from '../../src/index.ts';
+import { createTestClient, pendingStream } from '../helpers/flue-test-client.ts';
+import { mountSetup } from '../helpers/vue-harness.ts';
 
 describe('useFlueAgent Vue contracts', () => {
-	it.todo('requires a client even while dormant without id');
-	it.todo('stays dormant without id and returns empty idle refs');
-	it.todo('accepts plain values, refs, computed refs, and getters for name');
-	it.todo('accepts plain values, refs, computed refs, and getters for id');
-	it.todo('accepts plain values, refs, computed refs, and getters for history');
-	it.todo('accepts plain values, refs, computed refs, and getters for live mode');
-	it.todo('does not recreate a session when computed option values are unchanged');
-	it.todo('replaces the session when id changes');
-	it.todo('replaces the session when name changes');
-	it.todo('replaces the session when history changes');
-	it.todo('replaces the session when live mode changes');
-	it.todo('replaces the session when client changes');
-	it.todo('returns refs that survive destructuring');
-	it.todo('starts observing only after component mount');
+	it('requires a client even while dormant without id', () => {
+		expect(() => mountSetup(() => useFlueAgent({ name: 'triage' }))).toThrow(
+			/client option or provided Flue client/,
+		);
+	});
+
+	it('stays dormant without id and returns empty idle refs', () => {
+		const client = createTestClient();
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', client }));
+
+		expect(mounted.exposed.messages.value).toEqual([]);
+		expect(mounted.exposed.status.value).toBe('idle');
+		expect(mounted.exposed.historyReady.value).toBe(false);
+		expect(mounted.exposed.error.value).toBeUndefined();
+		expect(client.agents.stream).not.toHaveBeenCalled();
+		mounted.unmount();
+	});
+
+	it('accepts plain values, refs, computed refs, and getters for name', async () => {
+		const client = createTestClient();
+		const stream = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream).mockReturnValue(stream);
+		const name = shallowRef('triage');
+		const mounted = mountSetup(() =>
+			useFlueAgent({
+				name: computed(() => name.value),
+				id: 'ticket-1',
+				client,
+			}),
+		);
+
+		await nextTick();
+
+		expect(client.agents.stream).toHaveBeenCalledWith('triage', 'ticket-1', {
+			offset: '-1',
+			tail: 100,
+			live: false,
+		});
+		mounted.unmount();
+	});
+
+	it('accepts plain values, refs, computed refs, and getters for id', async () => {
+		const client = createTestClient();
+		const id = shallowRef('ticket-1');
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: () => id.value, client }));
+
+		await nextTick();
+
+		expect(client.agents.stream).toHaveBeenCalledWith('triage', 'ticket-1', {
+			offset: '-1',
+			tail: 100,
+			live: false,
+		});
+		mounted.unmount();
+	});
+
+	it('accepts plain values, refs, computed refs, and getters for history', async () => {
+		const client = createTestClient();
+		const mounted = mountSetup(() =>
+			useFlueAgent({
+				name: 'triage',
+				id: 'ticket-1',
+				history: () => 'all',
+				client,
+			}),
+		);
+
+		await nextTick();
+
+		expect(client.agents.stream).toHaveBeenCalledWith('triage', 'ticket-1', {
+			offset: '-1',
+			tail: undefined,
+			live: false,
+		});
+		mounted.unmount();
+	});
+
+	it('accepts plain values, refs, computed refs, and getters for live mode', async () => {
+		const client = createTestClient();
+		const stream = pendingStream<AttachedAgentEvent>('history-offset');
+		vi.mocked(client.agents.stream).mockReturnValue(stream);
+		const live = shallowRef<'sse'>('sse');
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', live, client }));
+
+		await nextTick();
+
+		expect(client.agents.stream).toHaveBeenCalledWith('triage', 'ticket-1', {
+			offset: '-1',
+			tail: 100,
+			live: false,
+		});
+		mounted.unmount();
+	});
+
+	it('does not recreate a session when computed option values are unchanged', async () => {
+		const client = createTestClient();
+		const dependency = shallowRef(0);
+		const id = computed(() => {
+			void dependency.value;
+			return 'ticket-1';
+		});
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id, client }));
+
+		await nextTick();
+		expect(client.agents.stream).toHaveBeenCalledTimes(1);
+
+		dependency.value++;
+		await nextTick();
+
+		expect(client.agents.stream).toHaveBeenCalledTimes(1);
+		mounted.unmount();
+	});
+
+	it('replaces the session when id changes', async () => {
+		const client = createTestClient();
+		const firstStream = pendingStream<AttachedAgentEvent>();
+		const secondStream = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream).mockReturnValueOnce(firstStream).mockReturnValueOnce(secondStream);
+		const id = shallowRef('ticket-1');
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id, client }));
+
+		await nextTick();
+		id.value = 'ticket-2';
+		await nextTick();
+
+		expect(firstStream.cancel).toHaveBeenCalledTimes(1);
+		expect(client.agents.stream).toHaveBeenLastCalledWith('triage', 'ticket-2', {
+			offset: '-1',
+			tail: 100,
+			live: false,
+		});
+		mounted.unmount();
+	});
+
+	it('replaces the session when name changes', async () => {
+		const client = createTestClient();
+		const firstStream = pendingStream<AttachedAgentEvent>();
+		const secondStream = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream).mockReturnValueOnce(firstStream).mockReturnValueOnce(secondStream);
+		const name = shallowRef('triage');
+		const mounted = mountSetup(() => useFlueAgent({ name, id: 'ticket-1', client }));
+
+		await nextTick();
+		name.value = 'support';
+		await nextTick();
+
+		expect(firstStream.cancel).toHaveBeenCalledTimes(1);
+		expect(client.agents.stream).toHaveBeenLastCalledWith('support', 'ticket-1', {
+			offset: '-1',
+			tail: 100,
+			live: false,
+		});
+		mounted.unmount();
+	});
+
+	it('replaces the session when history changes', async () => {
+		const client = createTestClient();
+		const firstStream = pendingStream<AttachedAgentEvent>();
+		const secondStream = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream).mockReturnValueOnce(firstStream).mockReturnValueOnce(secondStream);
+		const history = shallowRef<100 | 'all'>(100);
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', history, client }));
+
+		await nextTick();
+		history.value = 'all';
+		await nextTick();
+
+		expect(firstStream.cancel).toHaveBeenCalledTimes(1);
+		expect(client.agents.stream).toHaveBeenLastCalledWith('triage', 'ticket-1', {
+			offset: '-1',
+			tail: undefined,
+			live: false,
+		});
+		mounted.unmount();
+	});
+
+	it('replaces the session when live mode changes', async () => {
+		const client = createTestClient();
+		const firstStream = pendingStream<AttachedAgentEvent>();
+		const secondStream = pendingStream<AttachedAgentEvent>();
+		vi.mocked(client.agents.stream).mockReturnValueOnce(firstStream).mockReturnValueOnce(secondStream);
+		const live = shallowRef<boolean | 'sse'>(true);
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', live, client }));
+
+		await nextTick();
+		live.value = 'sse';
+		await nextTick();
+
+		expect(firstStream.cancel).toHaveBeenCalledTimes(1);
+		expect(client.agents.stream).toHaveBeenCalledTimes(2);
+		mounted.unmount();
+	});
+
+	it('replaces the session when client changes', async () => {
+		const first = createTestClient();
+		const second = createTestClient();
+		const firstStream = pendingStream<AttachedAgentEvent>();
+		const secondStream = pendingStream<AttachedAgentEvent>();
+		vi.mocked(first.agents.stream).mockReturnValue(firstStream);
+		vi.mocked(second.agents.stream).mockReturnValue(secondStream);
+		const client = shallowRef(first);
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await nextTick();
+		client.value = second;
+		await nextTick();
+
+		expect(firstStream.cancel).toHaveBeenCalledTimes(1);
+		expect(second.agents.stream).toHaveBeenCalledTimes(1);
+		mounted.unmount();
+	});
+
+	it('returns refs that survive destructuring', () => {
+		const client = createTestClient();
+		const mounted = mountSetup(() => {
+			const { messages, status, historyReady, error, sendMessage } = useFlueAgent({
+				name: 'triage',
+				client,
+			});
+			return { messages, status, historyReady, error, sendMessage };
+		});
+
+		expect(mounted.exposed.messages.value).toEqual([]);
+		expect(mounted.exposed.status.value).toBe('idle');
+		expect(mounted.exposed.historyReady.value).toBe(false);
+		mounted.unmount();
+	});
+
+	it('starts observing only after component mount', async () => {
+		const client = createTestClient();
+		const mounted = mountSetup(() => {
+			const agent = useFlueAgent({ name: 'triage', id: 'ticket-1', client });
+			expect(client.agents.stream).not.toHaveBeenCalled();
+			return agent;
+		});
+
+		await nextTick();
+
+		expect(client.agents.stream).toHaveBeenCalledTimes(1);
+		mounted.unmount();
+	});
+
 	it.todo('does not open streams during server-side setup');
 	it.todo('disposes the observer on component unmount');
 	it.todo('disposes the observer when an enclosing effectScope stops');
@@ -29,11 +262,88 @@ describe('useFlueAgent Vue contracts', () => {
 	it.todo('keeps historyReady true across live reconnects');
 	it.todo('treats initial 404 as an empty new conversation');
 	it.todo('attaches from the admission offset after first send for a fresh conversation');
-	it.todo('sendMessage rejects without id');
-	it.todo('sendMessage adds an optimistic user message immediately');
-	it.todo('sendMessage forwards image options to client.agents.send');
-	it.todo('sendMessage resolves after admission, not after generation');
-	it.todo('sendMessage removes optimistic message and surfaces error when admission fails');
+
+	it('sendMessage rejects without id', async () => {
+		const client = createTestClient();
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', client }));
+
+		await expect(mounted.exposed.sendMessage('hello')).rejects.toThrow(/agent id/);
+		expect(client.agents.send).not.toHaveBeenCalled();
+		mounted.unmount();
+	});
+
+	it('sendMessage adds an optimistic user message immediately', async () => {
+		const client = createTestClient();
+		const admission = agentAdmission();
+		let resolveAdmission!: (value: AgentSendResult) => void;
+		vi.mocked(client.agents.send).mockReturnValue(
+			new Promise<AgentSendResult>((resolve) => {
+				resolveAdmission = resolve;
+			}),
+		);
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+		const sendPromise = mounted.exposed.sendMessage('hello');
+
+		expect(mounted.exposed.messages.value).toMatchObject([
+			{ role: 'user', parts: [{ type: 'text', text: 'hello', state: 'done' }] },
+		]);
+
+		resolveAdmission(admission);
+		await sendPromise;
+
+		expect(mounted.exposed.status.value).toBe('streaming');
+		mounted.unmount();
+	});
+
+	it('sendMessage forwards image options to client.agents.send', async () => {
+		const client = createTestClient();
+		vi.mocked(client.agents.send).mockResolvedValue(agentAdmission());
+		const image: AgentPromptImage = {
+			type: 'image',
+			data: 'data:image/png;base64,abc',
+			mimeType: 'image/png',
+		};
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await mounted.exposed.sendMessage('hello', { images: [image] });
+
+		expect(client.agents.send).toHaveBeenCalledWith('triage', 'ticket-1', {
+			message: 'hello',
+			images: [image],
+		});
+		expect(mounted.exposed.messages.value[0]?.parts).toContainEqual({
+			type: 'file',
+			mediaType: 'image/png',
+			url: 'data:image/png;base64,abc',
+		});
+		mounted.unmount();
+	});
+
+	it('sendMessage resolves after admission, not after generation', async () => {
+		const client = createTestClient();
+		vi.mocked(client.agents.send).mockResolvedValue(agentAdmission());
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await expect(mounted.exposed.sendMessage('hello')).resolves.toBeUndefined();
+
+		expect(client.agents.send).toHaveBeenCalledTimes(1);
+		mounted.unmount();
+	});
+
+	it('sendMessage removes optimistic message and surfaces error when admission fails', async () => {
+		const client = createTestClient();
+		const error = new Error('admission failed');
+		vi.mocked(client.agents.send).mockRejectedValue(error);
+		const mounted = mountSetup(() => useFlueAgent({ name: 'triage', id: 'ticket-1', client }));
+
+		await expect(mounted.exposed.sendMessage('hello')).rejects.toThrow('admission failed');
+
+		expect(mounted.exposed.messages.value).toEqual([]);
+		expect(mounted.exposed.status.value).toBe('error');
+		expect(mounted.exposed.error.value).toBe(error);
+		mounted.unmount();
+	});
+
 	it.todo('reconciles receipt-before-echo without comparing message text');
 	it.todo('reconciles echo-before-receipt by dropping the optimistic duplicate');
 	it.todo('keeps optimistic user message position when durable echo arrives late');
@@ -61,3 +371,10 @@ describe('useFlueAgent Vue contracts', () => {
 	it.todo('does not cancel server-side work when local observation is disposed');
 });
 
+function agentAdmission(): AgentSendResult {
+	return {
+		streamUrl: 'https://example.com/stream',
+		offset: 'offset-1',
+		submissionId: 'submission-1',
+	};
+}
