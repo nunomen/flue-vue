@@ -1,3 +1,9 @@
+/*
+ * Portions derived from @flue/react in withastro/flue.
+ * Licensed under Apache License 2.0.
+ * Modifications Copyright 2026 Nuno Mendes.
+ */
+
 import type { FlueClient } from '@flue/sdk';
 import type {
 	App,
@@ -20,7 +26,7 @@ import {
 	toValue,
 	watch,
 } from 'vue';
-import type { CreateFluePluginOptions } from './types.ts';
+import type { CreateFluePluginOptions } from './types.js';
 
 export type FlueClientSource = Readonly<ShallowRef<FlueClient>>;
 
@@ -99,4 +105,3 @@ function createFlueClientSource(client: FlueClient): ShallowRef<FlueClient> {
 function toProvidedClient(client: FlueClient): FlueClient {
 	return markRaw(toRaw(client));
 }
-

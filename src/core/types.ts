@@ -1,3 +1,9 @@
+/*
+ * Portions derived from @flue/react in withastro/flue.
+ * Licensed under Apache License 2.0.
+ * Modifications Copyright 2026 Nuno Mendes.
+ */
+
 import type {
 	AgentPromptImage,
 	AttachedAgentEvent,

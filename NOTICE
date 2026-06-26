@@ -1,0 +1,8 @@
+@nunomen/flue-vue
+Copyright 2026 Nuno Mendes
+
+This project includes code adapted from @flue/react, part of withastro/flue:
+https://github.com/withastro/flue/tree/main/packages/react
+
+withastro/flue is licensed under the Apache License, Version 2.0:
+https://github.com/withastro/flue/blob/main/LICENSE

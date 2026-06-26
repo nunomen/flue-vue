@@ -1,3 +1,9 @@
+/*
+ * Portions derived from @flue/react in withastro/flue.
+ * Licensed under Apache License 2.0.
+ * Modifications Copyright 2026 Nuno Mendes.
+ */
+
 import type { AttachedAgentEvent, FlueClient, FlueEventStream, LiveMode } from '@flue/sdk';
 import {
 	adjustPendingStatus,
@@ -10,14 +16,14 @@ import {
 	normalizeError,
 	optimisticMessageId,
 	reduceAgentEvent,
-} from './agent-reducer.ts';
+} from './agent-reducer.js';
 import type {
 	AgentHistory,
 	AgentSnapshot,
 	SendMessageOptions,
 	SubscribableSnapshot,
 	UIMessage,
-} from './types.ts';
+} from './types.js';
 
 export interface AgentSessionIdentity {
 	client: FlueClient;

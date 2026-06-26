@@ -1,5 +1,11 @@
+/*
+ * Portions derived from @flue/react in withastro/flue.
+ * Licensed under Apache License 2.0.
+ * Modifications Copyright 2026 Nuno Mendes.
+ */
+
 import type { FlueClient, FlueEvent, FlueEventStream } from '@flue/sdk';
-import type { SubscribableSnapshot, WorkflowSnapshot } from './types.ts';
+import type { SubscribableSnapshot, WorkflowSnapshot } from './types.js';
 
 export const emptyWorkflowSnapshot: WorkflowSnapshot = {
 	events: [],

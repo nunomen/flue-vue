@@ -1,9 +1,15 @@
+/*
+ * Portions derived from @flue/react in withastro/flue.
+ * Licensed under Apache License 2.0.
+ * Modifications Copyright 2026 Nuno Mendes.
+ */
+
 import type { FlueClient } from '@flue/sdk';
 import { computed, toValue } from 'vue';
-import { emptyWorkflowSnapshot, WorkflowRun } from './core/workflow-run.ts';
-import { useSubscribableSnapshot } from './bridge.ts';
-import { useFlueClientSource } from './provider.ts';
-import type { UseFlueWorkflowOptions, UseFlueWorkflowReturn } from './types.ts';
+import { emptyWorkflowSnapshot, WorkflowRun } from './core/workflow-run.js';
+import { useSubscribableSnapshot } from './bridge.js';
+import { useFlueClientSource } from './provider.js';
+import type { UseFlueWorkflowOptions, UseFlueWorkflowReturn } from './types.js';
 
 interface WorkflowIdentity {
 	client: FlueClient;

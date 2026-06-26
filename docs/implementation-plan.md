@@ -1,4 +1,4 @@
-# `@flue/vue` Implementation Plan
+# `@nunomen/flue-vue` Implementation Plan
 
 ## Objective
 
@@ -133,7 +133,7 @@ src/
 
 ```ts
 import { createFlueClient } from '@flue/sdk';
-import { createFluePlugin } from '@flue/vue';
+import { createFluePlugin } from '@nunomen/flue-vue';
 import { createApp } from 'vue';
 import App from './App.vue';
 
@@ -145,7 +145,7 @@ createApp(App).use(createFluePlugin({ client })).mount('#app');
 ```vue
 <script setup lang="ts">
 import { shallowRef } from 'vue';
-import { useFlueAgent } from '@flue/vue';
+import { useFlueAgent } from '@nunomen/flue-vue';
 
 const props = defineProps<{ conversationId: string }>();
 
@@ -168,7 +168,7 @@ The quickstart must state that the Vue app is only the browser side. A [Flue](ht
 
 ### Authentication
 
-`@flue/vue` should not implement a separate authentication layer. It should mirror [`@flue/react`](https://www.npmjs.com/package/@flue/react): users configure auth on the [`@flue/sdk`](https://www.npmjs.com/package/@flue/sdk) client and provide that client to Vue.
+`@nunomen/flue-vue` should not implement a separate authentication layer. It should mirror [`@flue/react`](https://www.npmjs.com/package/@flue/react): users configure auth on the [`@flue/sdk`](https://www.npmjs.com/package/@flue/sdk) client and provide that client to Vue.
 
 Static bearer token:
 

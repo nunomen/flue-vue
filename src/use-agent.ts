@@ -1,10 +1,16 @@
+/*
+ * Portions derived from @flue/react in withastro/flue.
+ * Licensed under Apache License 2.0.
+ * Modifications Copyright 2026 Nuno Mendes.
+ */
+
 import type { FlueClient, LiveMode } from '@flue/sdk';
 import { computed, toValue } from 'vue';
-import { emptyAgentSnapshot } from './core/agent-reducer.ts';
-import { AgentSession } from './core/agent-session.ts';
-import { useSubscribableSnapshot } from './bridge.ts';
-import { useFlueClientSource } from './provider.ts';
-import type { AgentHistory, UseFlueAgentOptions, UseFlueAgentReturn } from './types.ts';
+import { emptyAgentSnapshot } from './core/agent-reducer.js';
+import { AgentSession } from './core/agent-session.js';
+import { useSubscribableSnapshot } from './bridge.js';
+import { useFlueClientSource } from './provider.js';
+import type { AgentHistory, UseFlueAgentOptions, UseFlueAgentReturn } from './types.js';
 
 interface AgentIdentity {
 	client: FlueClient;

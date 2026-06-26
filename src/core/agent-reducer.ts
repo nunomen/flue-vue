@@ -1,5 +1,11 @@
+/*
+ * Portions derived from @flue/react in withastro/flue.
+ * Licensed under Apache License 2.0.
+ * Modifications Copyright 2026 Nuno Mendes.
+ */
+
 import { IMAGE_DATA_OMITTED, type AttachedAgentEvent } from '@flue/sdk';
-import type { AgentSnapshot, UIMessage, UIMessagePart } from './types.ts';
+import type { AgentSnapshot, UIMessage, UIMessagePart } from './types.js';
 
 export const emptyAgentSnapshot: AgentSnapshot = {
 	messages: [],

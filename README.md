@@ -1,9 +1,9 @@
-# `@flue/vue` (non-official)
+# `@nunomen/flue-vue` (unofficial)
 
 [![CI](https://github.com/nunomen/flue-vue/actions/workflows/ci.yml/badge.svg)](https://github.com/nunomen/flue-vue/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-Non-official Vue 3 adapter for [Flue](https://flueframework.com/). It provides Vue-native setup, provider, agent, and workflow composables for using Flue from Vue apps while tracking the behavior of the Flue SDK and React adapter.
+Unofficial Vue 3 adapter for [Flue](https://flueframework.com/). It provides Vue-native setup, provider, agent, and workflow composables for using Flue from Vue apps while tracking the behavior of the Flue SDK and React adapter.
 
 Related Flue packages:
 
@@ -17,7 +17,7 @@ Contract tests and fixtures keep the adapter aligned with the Flue SDK and the e
 
 ```ts
 import { createFlueClient } from '@flue/sdk';
-import { createFluePlugin } from '@flue/vue';
+import { createFluePlugin } from '@nunomen/flue-vue';
 import { createApp } from 'vue';
 import App from './App.vue';
 
@@ -31,7 +31,7 @@ app.mount('#app');
 ```vue
 <script setup lang="ts">
 import { shallowRef } from 'vue';
-import { useFlueAgent } from '@flue/vue';
+import { useFlueAgent } from '@nunomen/flue-vue';
 
 const input = shallowRef('');
 const agent = useFlueAgent({
@@ -63,7 +63,7 @@ src/
 ```ts
 // src/main.ts
 import { createFlueClient } from '@flue/sdk';
-import { createFluePlugin } from '@flue/vue';
+import { createFluePlugin } from '@nunomen/flue-vue';
 import { createApp } from 'vue';
 import App from './App.vue';
 
@@ -89,7 +89,7 @@ import AgentChat from './components/AgentChat.vue';
 <!-- src/components/AgentChat.vue -->
 <script setup lang="ts">
 import { shallowRef } from 'vue';
-import { useFlueAgent } from '@flue/vue';
+import { useFlueAgent } from '@nunomen/flue-vue';
 
 const props = defineProps<{
 	conversationId: string;
@@ -138,7 +138,7 @@ The app plugin is the normal application setup path. Component libraries and tes
 ```vue
 <script setup lang="ts">
 import { createFlueClient } from '@flue/sdk';
-import { FlueProvider } from '@flue/vue';
+import { FlueProvider } from '@nunomen/flue-vue';
 import AgentChat from './AgentChat.vue';
 
 const client = createFlueClient({ baseUrl: '/api' });
@@ -158,7 +158,7 @@ Workflow invocation and workflow-run observation are separate operations. `useFl
 ```vue
 <script setup lang="ts">
 import { shallowRef } from 'vue';
-import { useFlueClient, useFlueWorkflow } from '@flue/vue';
+import { useFlueClient, useFlueWorkflow } from '@nunomen/flue-vue';
 
 const client = useFlueClient();
 const messageInput = shallowRef('Summarize the current support queue.');
@@ -203,7 +203,7 @@ The workflow input shape is whatever the workflow defines; `{ message }` is just
 
 ## Authentication Model
 
-`@flue/vue` should follow the same authentication model as [`@flue/react`](https://www.npmjs.com/package/@flue/react): the adapter does not own auth. Authentication belongs to the [`@flue/sdk`](https://www.npmjs.com/package/@flue/sdk) client and to the server routes that expose Flue.
+`@nunomen/flue-vue` should follow the same authentication model as [`@flue/react`](https://www.npmjs.com/package/@flue/react): the adapter does not own auth. Authentication belongs to the [`@flue/sdk`](https://www.npmjs.com/package/@flue/sdk) client and to the server routes that expose Flue.
 
 Client-side auth is configured when creating the SDK client:
 
@@ -245,7 +245,7 @@ Use a client plugin when the SDK client uses a relative browser `baseUrl`:
 ```ts
 // plugins/flue.client.ts
 import { createFlueClient } from '@flue/sdk';
-import { createFluePlugin } from '@flue/vue';
+import { createFluePlugin } from '@nunomen/flue-vue';
 
 export default defineNuxtPlugin((nuxtApp) => {
 	const client = createFlueClient({ baseUrl: '/api' });

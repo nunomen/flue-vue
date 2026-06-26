@@ -1,3 +1,9 @@
+/*
+ * Portions derived from @flue/react in withastro/flue.
+ * Licensed under Apache License 2.0.
+ * Modifications Copyright 2026 Nuno Mendes.
+ */
+
 import type { FlueClient, LiveMode } from '@flue/sdk';
 import type { ComputedRef, MaybeRefOrGetter } from 'vue';
 import type {
@@ -9,7 +15,7 @@ import type {
 	UIMessage,
 	WorkflowSnapshot,
 	WorkflowStatus,
-} from './core/types.ts';
+} from './core/types.js';
 export type {
 	AgentHistory,
 	AgentSnapshot,
@@ -24,7 +30,7 @@ export type {
 	UIMessagePart,
 	WorkflowSnapshot,
 	WorkflowStatus,
-} from './core/types.ts';
+} from './core/types.js';
 
 export interface UseFlueAgentOptions {
 	name: MaybeRefOrGetter<string>;

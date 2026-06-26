@@ -1,7 +1,13 @@
+/*
+ * Portions derived from @flue/react in withastro/flue.
+ * Licensed under Apache License 2.0.
+ * Modifications Copyright 2026 Nuno Mendes.
+ */
+
 import type { ShallowRef } from 'vue';
 import { getCurrentInstance, onMounted, onScopeDispose, shallowRef, watch } from 'vue';
-import type { SubscribableSnapshot } from './core/types.ts';
-export type { SubscribableSnapshot } from './core/types.ts';
+import type { SubscribableSnapshot } from './core/types.js';
+export type { SubscribableSnapshot } from './core/types.js';
 
 export interface UseSubscribableSnapshotOptions<TSnapshot, TIdentity, TObserver extends SubscribableSnapshot<TSnapshot>> {
 	emptySnapshot: TSnapshot;
