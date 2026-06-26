@@ -15,6 +15,27 @@ import type {
 
 export type { AgentPromptImage, AttachedAgentEvent, FlueClient, FlueEvent, LiveMode, PromptUsage };
 
+export interface AgentDataEvent {
+	type: 'data';
+	name: string;
+	id?: string;
+	data: unknown;
+	v: number;
+	eventIndex: number;
+	timestamp: string;
+	runId?: never;
+	instanceId: string;
+	dispatchId?: string;
+	submissionId?: string;
+	agentName?: string;
+	conversationId?: string;
+	session?: string;
+	parentSession?: string;
+	turnId?: string;
+}
+
+export type AgentStreamEvent = AttachedAgentEvent | AgentDataEvent;
+
 export type UIMessagePart =
 	| { type: 'text'; text: string; state?: 'streaming' | 'done' }
 	| { type: 'reasoning'; text: string; state?: 'streaming' | 'done' }
@@ -23,7 +44,8 @@ export type UIMessagePart =
 			| { state: 'output-available'; input: unknown; output: unknown; errorText?: never }
 			| { state: 'output-error'; input: unknown; output?: never; errorText: string }
 	  ))
-	| { type: 'file'; mediaType: string; url: string };
+	| { type: 'file'; mediaType: string; url: string }
+	| { type: `data-${string}`; id?: string; data: unknown };
 
 export interface UIMessage {
 	id: string;
@@ -74,5 +96,9 @@ export interface SubscribableSnapshot<TSnapshot> {
 }
 
 export interface CreateFluePluginOptions {
+	client: FlueClient;
+}
+
+export interface FlueProviderProps {
 	client: FlueClient;
 }

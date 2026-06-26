@@ -380,7 +380,8 @@ describe('useFlueWorkflow Vue contracts', () => {
 	it('dedupes redelivered workflow events', async () => {
 		const client = createTestClient();
 		const event = runStartEvent(0);
-		vi.mocked(client.runs.stream).mockReturnValue(finiteStream<FlueEvent>([event, event]));
+		const redelivered = { ...event, timestamp: '2026-06-25T00:00:59.000Z' };
+		vi.mocked(client.runs.stream).mockReturnValue(finiteStream<FlueEvent>([event, redelivered]));
 		const mounted = mountSetup(() => useFlueWorkflow({ runId: 'run-1', client }));
 
 		await flushPromises();

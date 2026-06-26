@@ -274,7 +274,7 @@ const { messages, status, sendMessage } = useFlueAgent({
 
 Agent status is one of `idle`, `connecting`, `submitted`, `streaming`, or `error`. Workflow status is one of `idle`, `connecting`, `running`, `completed`, `errored`, or `disconnected`.
 
-Message parts currently include text, reasoning, dynamic tool calls, and file parts for images. Live mode is delegated to the SDK and can use the default long-poll behavior or `'sse'`.
+Message parts currently include text, reasoning, dynamic tool calls, file parts for images, and `data-*` parts from custom agent data events. Live mode is delegated to the SDK and can use the default long-poll behavior or `'sse'`.
 
 During SSR, `useFlueAgent()` and `useFlueWorkflow()` return dormant snapshots and do not open streams. Stream observation starts after client mount, or immediately in a standalone client-side `effectScope`.
 
@@ -284,7 +284,7 @@ Disposing a Vue observer only closes the local stream read. It does not cancel s
 
 - `src/index.ts` exports provider, agent, workflow, and shared SDK types.
 - `src/core` keeps reducer, agent-session, workflow-run, and shared message/status types framework-neutral so the Vue composables stay lifecycle/ref adapters.
-- `useFlueAgent()` covers client resolution, mounted observation, history hydration, live tailing, optimistic send admission, durable echo reconciliation, streamed assistant text/reasoning/tool parts, terminal reconciliation, stable React-compatible message IDs, fresh-conversation `404` handling, fatal stream errors, transient retries, and reconnect wakeups.
+- `useFlueAgent()` covers client resolution, mounted observation, history hydration, live tailing, optimistic send admission, durable echo reconciliation, streamed assistant text/reasoning/tool/data parts, terminal reconciliation, stable React-compatible message IDs, fresh-conversation `404` handling, fatal stream errors, transient retries, and reconnect wakeups.
 - `useFlueWorkflow()` covers client resolution, mounted observation, run replay, log selection, terminal states, disconnected states, event dedupe, and transient retry from durable checkpoints with retry status snapshots.
 - `test/contracts` contains active runtime and type contract coverage for the public Vue adapter behavior.
 - `docs/implementation-plan.md` is the source of truth for the build plan.

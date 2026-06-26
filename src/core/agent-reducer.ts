@@ -5,7 +5,7 @@
  */
 
 import { IMAGE_DATA_OMITTED, type AttachedAgentEvent } from '@flue/sdk';
-import type { AgentSnapshot, UIMessage, UIMessagePart } from './types.js';
+import type { AgentDataEvent, AgentSnapshot, AgentStreamEvent, UIMessage, UIMessagePart } from './types.js';
 
 export const emptyAgentSnapshot: AgentSnapshot = {
 	messages: [],
@@ -14,7 +14,7 @@ export const emptyAgentSnapshot: AgentSnapshot = {
 	error: undefined,
 };
 
-export function reduceAgentEvent(snapshot: AgentSnapshot, event: AttachedAgentEvent): AgentSnapshot {
+export function reduceAgentEvent(snapshot: AgentSnapshot, event: AgentStreamEvent): AgentSnapshot {
 	let messages = snapshot.messages;
 
 	if (event.type === 'message_start' || event.type === 'message_end') {
@@ -61,6 +61,8 @@ export function reduceAgentEvent(snapshot: AgentSnapshot, event: AttachedAgentEv
 			...message,
 			metadata: metadataFromTurn(event, message.metadata),
 		}));
+	} else if (event.type === 'data') {
+		messages = upsertDataMessage(snapshot.messages, event);
 	}
 
 	if (event.type === 'idle') {
@@ -104,7 +106,7 @@ export function adjustPendingStatus(snapshot: AgentSnapshot, pendingSubmissions:
 	if (snapshot.status !== 'idle' || pendingSubmissions.size === 0) return snapshot;
 	return {
 		...snapshot,
-		status: 'streaming',
+		status: 'submitted',
 	};
 }
 
@@ -120,7 +122,7 @@ export function optimisticMessageId(submissionId: string): string {
 	return `local:${submissionId}`;
 }
 
-export function agentEventKey(event: AttachedAgentEvent): string {
+export function agentEventKey(event: AgentStreamEvent): string {
 	return [
 		event.instanceId,
 		event.dispatchId ?? event.submissionId ?? '',
@@ -299,6 +301,19 @@ function finishReasoningPart(parts: UIMessagePart[], content: string, contentInd
 	return next;
 }
 
+function upsertDataMessage(messages: UIMessage[], event: AgentDataEvent): UIMessage[] {
+	const id =
+		event.id === undefined
+			? `data-event:${agentEventKey(event)}`
+			: `data:${JSON.stringify([event.name, event.id])}`;
+	const part: UIMessagePart = {
+		type: `data-${event.name}`,
+		...(event.id === undefined ? {} : { id: event.id }),
+		data: event.data,
+	};
+	return upsertMessage(messages, { id, role: 'assistant', parts: [part] });
+}
+
 function upsertToolStart(
 	parts: UIMessagePart[],
 	event: Extract<AttachedAgentEvent, { type: 'tool_start' }>,
@@ -431,6 +446,8 @@ function findLastPartIndex<TPart extends UIMessagePart>(
 }
 
 function findReasoningPartIndex(parts: UIMessagePart[], contentIndex: number): number {
+	if (parts[contentIndex]?.type === 'reasoning') return contentIndex;
+
 	let seen = 0;
 	for (let index = 0; index < parts.length; index++) {
 		if (parts[index]?.type !== 'reasoning') continue;

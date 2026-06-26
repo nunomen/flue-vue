@@ -5,11 +5,15 @@ import { computed, shallowRef } from 'vue';
 import {
 	createFluePlugin,
 	type UIMessage,
+	type UIMessagePart,
 	useFlueAgent,
 	useFlueWorkflow,
+	type FlueProviderProps,
 	type UseFlueAgentOptions,
+	type UseFlueAgentResult,
 	type UseFlueAgentReturn,
 	type UseFlueWorkflowOptions,
+	type UseFlueWorkflowResult,
 	type UseFlueWorkflowReturn,
 } from '../../src/index.ts';
 
@@ -33,6 +37,7 @@ test('agent return values are refs and actions', () => {
 	const agent = useFlueAgent({ name: 'triage', id: 'ticket-8472', client });
 
 	expectTypeOf(agent).toMatchTypeOf<UseFlueAgentReturn>();
+	expectTypeOf(agent).toMatchTypeOf<UseFlueAgentResult>();
 	expectTypeOf(agent.messages).toMatchTypeOf<ComputedRef<UIMessage[]>>();
 	expectTypeOf(agent.status.value).toEqualTypeOf<'idle' | 'connecting' | 'submitted' | 'streaming' | 'error'>();
 	expectTypeOf(agent.historyReady).toMatchTypeOf<Ref<boolean>>();
@@ -55,6 +60,7 @@ test('workflow return values are refs', () => {
 	const workflow = useFlueWorkflow({ runId: 'run-1', client });
 
 	expectTypeOf(workflow).toMatchTypeOf<UseFlueWorkflowReturn>();
+	expectTypeOf(workflow).toMatchTypeOf<UseFlueWorkflowResult>();
 	expectTypeOf(workflow.events).toMatchTypeOf<ComputedRef<unknown[]>>();
 	expectTypeOf(workflow.logs).toMatchTypeOf<ComputedRef<unknown[]>>();
 	expectTypeOf(workflow.status.value).toEqualTypeOf<
@@ -64,4 +70,21 @@ test('workflow return values are refs', () => {
 
 test('plugin factory accepts a Flue client', () => {
 	expectTypeOf(createFluePlugin({ client })).toMatchTypeOf<Plugin>();
+	expectTypeOf({ client }).toMatchTypeOf<FlueProviderProps>();
+});
+
+test('UIMessage supports data parts', () => {
+	const dataPart: Extract<UIMessagePart, { type: `data-${string}` }> = {
+		type: 'data-progress',
+		id: 'setup',
+		data: { step: 1 },
+	};
+	const message: UIMessage = {
+		id: 'data:["progress","setup"]',
+		role: 'assistant',
+		parts: [dataPart],
+	};
+
+	expectTypeOf(dataPart).toMatchTypeOf<{ type: `data-${string}`; data: unknown }>();
+	expectTypeOf(message.parts).toMatchTypeOf<UIMessagePart[]>();
 });

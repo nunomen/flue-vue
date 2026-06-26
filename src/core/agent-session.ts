@@ -4,7 +4,7 @@
  * Modifications Copyright 2026 Nuno Mendes.
  */
 
-import type { AttachedAgentEvent, FlueClient, FlueEventStream, LiveMode } from '@flue/sdk';
+import type { FlueClient, FlueEventStream, LiveMode } from '@flue/sdk';
 import {
 	adjustPendingStatus,
 	agentEventKey,
@@ -20,6 +20,7 @@ import {
 import type {
 	AgentHistory,
 	AgentSnapshot,
+	AgentStreamEvent,
 	SendMessageOptions,
 	SubscribableSnapshot,
 	UIMessage,
@@ -39,12 +40,14 @@ export class AgentSession implements SubscribableSnapshot<AgentSnapshot> {
 		...emptyAgentSnapshot,
 		status: 'connecting',
 	};
-	#stream: FlueEventStream<AttachedAgentEvent> | undefined;
+	#stream: FlueEventStream<AgentStreamEvent> | undefined;
 	#started = false;
 	#disposed = false;
 	#localMessageIndex = 0;
 	#seenEvents = new Set<string>();
 	#pendingSubmissions = new Set<string>();
+	#hydrationEvents: AgentStreamEvent[] = [];
+	#hydrationOffset: string | undefined;
 	#nextLiveOffset: string | undefined;
 	#liveStarted = false;
 	#retryWake: (() => void) | undefined;
@@ -106,7 +109,7 @@ export class AgentSession implements SubscribableSnapshot<AgentSnapshot> {
 				messages: this.#snapshot.messages.map((item) =>
 					item.id === optimisticId ? { ...item, id: optimisticMessageId(admission.submissionId) } : item,
 				),
-				status: 'streaming',
+				status: this.#snapshot.status === 'streaming' ? 'streaming' : 'submitted',
 				error: undefined,
 			});
 			if (!this.#liveStarted && this.#snapshot.historyReady) {
@@ -132,18 +135,10 @@ export class AgentSession implements SubscribableSnapshot<AgentSnapshot> {
 
 	async #hydrateThenObserve() {
 		try {
-			const { events: historyEvents, offset } = await this.#consumeHistory();
+			const { offset } = await this.#consumeHistory();
 			if (this.#disposed) return;
 
-			const localSnapshot = this.#snapshot;
-			const hydrated = historyEvents.reduce(reduceAgentEvent, emptyAgentSnapshot);
-			this.#publish({
-				...hydrated,
-				messages: mergeHydratedAndLocalMessages(hydrated.messages, localSnapshot.messages),
-				historyReady: true,
-				status: this.#localSendError ? 'error' : hydrated.status === 'error' ? 'error' : 'idle',
-				error: this.#localSendError ?? hydrated.error,
-			});
+			this.#publishHydratedSnapshot();
 
 			await this.#observeLive(this.#nextLiveOffset ?? offset);
 		} catch (error) {
@@ -157,6 +152,8 @@ export class AgentSession implements SubscribableSnapshot<AgentSnapshot> {
 					status: this.#localSendError ? 'error' : 'idle',
 					error: this.#localSendError,
 				});
+				this.#resetHydration();
+				if (this.#nextLiveOffset) await this.#observeLive(this.#nextLiveOffset);
 				return;
 			}
 
@@ -178,18 +175,10 @@ export class AgentSession implements SubscribableSnapshot<AgentSnapshot> {
 			if (this.#disposed) return;
 
 			try {
-				const { events: historyEvents, offset } = await this.#consumeHistory();
+				const { offset } = await this.#consumeHistory();
 				if (this.#disposed) return;
 
-				const localSnapshot = this.#snapshot;
-				const hydrated = historyEvents.reduce(reduceAgentEvent, emptyAgentSnapshot);
-				this.#publish({
-					...hydrated,
-					messages: mergeHydratedAndLocalMessages(hydrated.messages, localSnapshot.messages),
-					historyReady: true,
-					status: this.#localSendError ? 'error' : 'idle',
-					error: this.#localSendError,
-				});
+				this.#publishHydratedSnapshot();
 
 				await this.#observeLive(this.#nextLiveOffset ?? offset);
 				return;
@@ -203,6 +192,8 @@ export class AgentSession implements SubscribableSnapshot<AgentSnapshot> {
 						status: this.#localSendError ? 'error' : 'idle',
 						error: this.#localSendError,
 					});
+					this.#resetHydration();
+					if (this.#nextLiveOffset) await this.#observeLive(this.#nextLiveOffset);
 					return;
 				}
 				if (isTerminalStreamError(nextError)) {
@@ -214,22 +205,27 @@ export class AgentSession implements SubscribableSnapshot<AgentSnapshot> {
 		}
 	}
 
-	async #consumeHistory(): Promise<{ events: AttachedAgentEvent[]; offset: string }> {
-		const events: AttachedAgentEvent[] = [];
+	async #consumeHistory(): Promise<{ offset: string }> {
 		const history = this.identity.history ?? 100;
+		const offset = this.#hydrationOffset ?? '-1';
 		const stream = this.identity.client.agents.stream(this.identity.name, this.identity.id, {
-			offset: '-1',
-			tail: history === 'all' ? undefined : history,
+			offset,
+			...(offset === '-1' && history !== 'all' ? { tail: history } : {}),
 			live: false,
 		});
 		this.#stream = stream;
 
-		for await (const event of stream) {
-			if (this.#disposed) return { events, offset: stream.offset };
-			events.push(event);
+		try {
+			for await (const event of stream) {
+				if (this.#disposed) return { offset: stream.offset };
+				this.#hydrationEvents.push(event);
+				this.#rememberHydrationOffset(stream.offset);
+			}
+		} finally {
+			this.#rememberHydrationOffset(stream.offset);
 		}
 
-		return { events, offset: stream.offset };
+		return { offset: stream.offset };
 	}
 
 	async #observeLive(offset: string) {
@@ -272,7 +268,7 @@ export class AgentSession implements SubscribableSnapshot<AgentSnapshot> {
 		await this.#waitForRetry(attempt);
 	}
 
-	#applyLiveEvent(event: AttachedAgentEvent) {
+	#applyLiveEvent(event: AgentStreamEvent) {
 		const key = agentEventKey(event);
 		if (this.#seenEvents.has(key)) return;
 		this.#seenEvents.add(key);
@@ -285,6 +281,34 @@ export class AgentSession implements SubscribableSnapshot<AgentSnapshot> {
 	#publish(snapshot: AgentSnapshot) {
 		this.#snapshot = snapshot;
 		for (const listener of this.#listeners) listener();
+	}
+
+	#publishHydratedSnapshot() {
+		const localSnapshot = this.#snapshot;
+		const hydrated = this.#hydrationEvents.reduce(reduceAgentEvent, emptyAgentSnapshot);
+		this.#resetHydration();
+		this.#publish({
+			...hydrated,
+			messages: mergeHydratedAndLocalMessages(hydrated.messages, localSnapshot.messages),
+			historyReady: true,
+			status: this.#localSendError
+				? 'error'
+				: hydrated.status === 'error'
+					? 'error'
+					: this.#pendingSubmissions.size > 0
+						? 'submitted'
+						: 'idle',
+			error: this.#localSendError ?? hydrated.error,
+		});
+	}
+
+	#rememberHydrationOffset(offset: string) {
+		if (offset !== '-1') this.#hydrationOffset = offset;
+	}
+
+	#resetHydration() {
+		this.#hydrationEvents = [];
+		this.#hydrationOffset = undefined;
 	}
 
 	#publishConnecting(error: unknown) {

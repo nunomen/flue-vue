@@ -18,12 +18,15 @@ import type {
 } from './core/types.js';
 export type {
 	AgentHistory,
+	AgentDataEvent,
+	AgentStreamEvent,
 	AgentSnapshot,
 	AgentStatus,
 	AgentPromptImage,
 	AttachedAgentEvent,
 	CreateFluePluginOptions,
 	FlueEvent,
+	FlueProviderProps,
 	PromptUsage,
 	SendMessageOptions,
 	UIMessage,
@@ -48,6 +51,8 @@ export interface UseFlueAgentReturn {
 	sendMessage(message: string, options?: SendMessageOptions): Promise<void>;
 }
 
+export type UseFlueAgentResult = UseFlueAgentReturn;
+
 export interface UseFlueWorkflowOptions {
 	runId?: MaybeRefOrGetter<string | undefined>;
 	client?: MaybeRefOrGetter<FlueClient | undefined>;
@@ -60,3 +65,5 @@ export interface UseFlueWorkflowReturn {
 	result: Readonly<ComputedRef<unknown>>;
 	error: Readonly<ComputedRef<unknown>>;
 }
+
+export type UseFlueWorkflowResult = UseFlueWorkflowReturn;

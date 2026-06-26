@@ -104,7 +104,7 @@ export class WorkflowRun implements SubscribableSnapshot<WorkflowSnapshot> {
 	}
 
 	#applyEvent(event: FlueEvent) {
-		const key = workflowEventKey(event);
+		const key = workflowEventKey(event, this.identity.runId);
 		if (this.#seenEvents.has(key)) return;
 		this.#seenEvents.add(key);
 
@@ -146,13 +146,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
 }
 
-function workflowEventKey(event: FlueEvent): string {
-	return [
-		event.runId ?? '',
-		event.dispatchId ?? '',
-		event.submissionId ?? '',
-		event.eventIndex,
-		event.type,
-		event.timestamp,
-	].join(':');
+function workflowEventKey(event: FlueEvent, runId: string): string {
+	return `${event.runId ?? runId}:${event.eventIndex}`;
 }
